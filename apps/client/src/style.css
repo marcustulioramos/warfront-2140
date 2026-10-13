@@ -1,0 +1,25 @@
+body {
+  margin: 0;
+  background: #09131d;
+  color: #e8f3f3;
+  font-family: system-ui, sans-serif;
+}
+#app {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+h1 {
+  font-size: 1.4rem;
+  margin: 16px 20px 0;
+}
+p {
+  margin: 4px 20px 12px;
+  color: #9bcbcf;
+}
+canvas {
+  width: 100%;
+  flex: 1;
+  display: block;
+  outline: none;
+}

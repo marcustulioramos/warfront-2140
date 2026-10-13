@@ -1,0 +1,40 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-warfront}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-development-only}
+      POSTGRES_DB: ${POSTGRES_DB:-warfront}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-warfront} -d ${POSTGRES_DB:-warfront}",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  server:
+    build:
+      context: .
+      target: server
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgres://warfront:local-development-only@postgres:5432/warfront}
+      SERVER_PORT: 3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+  client:
+    build:
+      context: .
+      target: client
+    depends_on:
+      - server
+    ports:
+      - "5173:5173"
+volumes:
+  postgres_data:

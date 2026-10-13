@@ -1,0 +1,23 @@
+{
+  "name": "@warfront/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts"
+  },
+  "dependencies": {
+    "@warfront/simulation": "workspace:*",
+    "@warfront/protocol": "workspace:*",
+    "fastify": "^5.6.0",
+    "@fastify/websocket": "^11.2.0",
+    "pg": "^8.16.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.15.0",
+    "tsx": "^4.20.0"
+  }
+}
