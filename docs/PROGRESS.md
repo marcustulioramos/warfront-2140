@@ -2,7 +2,7 @@
 
 This checklist tracks the milestones in the [original project brief](../README.md#the-game-we-are-building). A checked box means the work is implemented and verified; an unchecked box is still to do. Update this file in the same pull request as the work it records.
 
-**Current stage:** Milestone 0 foundation is running locally. The game is not yet a playable multiplayer match.
+**Current stage:** Milestone 1 single-player prototype is running locally. The game is not yet a playable multiplayer match.
 
 ## Milestone 0 — architecture and scaffolding
 
@@ -20,11 +20,11 @@ This checklist tracks the milestones in the [original project brief](../README.m
 
 ## Milestone 1 — single-player simulation prototype
 
-- [ ] Create a terrain and camera suitable for RTS controls.
-- [ ] Select a unit and issue a move command from the browser.
-- [ ] Broadcast authoritative movement updates so the client renders ongoing movement.
-- [ ] Restore match state after browser refresh and server restart.
-- [ ] Test command validation and movement end to end.
+- [x] Create a terrain and camera suitable for RTS controls.
+- [x] Select a unit and issue a move command from the browser.
+- [x] Broadcast authoritative movement updates so the client renders ongoing movement.
+- [x] Restore match state after browser refresh and server restart.
+- [x] Test command validation and movement end to end.
 
 ## Milestone 2 — multiplayer
 

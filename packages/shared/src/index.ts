@@ -2,6 +2,8 @@ export type MatchId = string;
 export type PlayerId = string;
 export type UnitId = string;
 
+export const WORLD_HALF_SIZE = 20;
+
 export interface Point {
   readonly x: number;
   readonly z: number;

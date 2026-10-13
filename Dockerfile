@@ -11,6 +11,6 @@ COPY . .
 RUN pnpm install --frozen-lockfile
 RUN pnpm build
 FROM base AS server
-CMD ["pnpm","--filter","@warfront/server","start"]
+CMD ["node","apps/server/dist/index.js"]
 FROM base AS client
 CMD ["pnpm","--filter","@warfront/client","dev"]

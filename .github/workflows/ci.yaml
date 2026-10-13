@@ -5,6 +5,22 @@ on:
 jobs:
   checks:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: warfront
+          POSTGRES_PASSWORD: test-only
+          POSTGRES_DB: warfront_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U warfront -d warfront_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL_TEST: postgres://warfront:test-only@localhost:5432/warfront_test
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

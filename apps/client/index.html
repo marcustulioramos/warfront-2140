@@ -7,9 +7,31 @@
   </head>
   <body>
     <div id="app">
-      <h1>Warfront 2140</h1>
-      <p id="status">Connecting to server…</p>
-      <canvas id="battlefield"></canvas>
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">DEVELOPMENT BATTLEFIELD</p>
+          <h1>Warfront 2140</h1>
+        </div>
+        <p id="status" role="status">Connecting to server…</p>
+      </header>
+      <main>
+        <canvas id="battlefield" aria-label="3D strategy battlefield"></canvas>
+        <aside class="hud">
+          <h2>Command panel</h2>
+          <p id="selection">Select the blue scout.</p>
+          <p id="order">No order issued.</p>
+          <p id="coordinates">Position: —</p>
+          <div class="divider"></div>
+          <p>
+            Left-click the scout to select it. Right-click the terrain to move.
+          </p>
+          <p>Drag to rotate, scroll to zoom, and use W A S D to pan.</p>
+          <p class="note">
+            This is a single-player prototype. Multiplayer matches are a later
+            milestone.
+          </p>
+        </aside>
+      </main>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

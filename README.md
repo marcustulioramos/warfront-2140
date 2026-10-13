@@ -1,6 +1,6 @@
 # Warfront 2140
 
-Warfront 2140 is an open source, browser based persistent RTS in early development. This repository currently contains the Milestone 0 foundation and a development battlefield. It is **not yet a playable multiplayer match**.
+Warfront 2140 is an open source, browser based persistent RTS in early development. This repository contains the Milestone 1 single-player prototype. It is **not yet a playable multiplayer match**.
 
 ## Local start
 
@@ -9,7 +9,11 @@ Warfront 2140 is an open source, browser based persistent RTS in early developme
 3. Run `docker compose up --build`.
 4. Open http://localhost:5173. The server health endpoint is http://localhost:3000/health.
 
-The health endpoint returns 503 if PostgreSQL is unavailable. The first scene displays a server owned development unit. Accounts, durable match recovery, combat and matchmaking are later milestones.
+The health endpoint returns 503 if PostgreSQL is unavailable. The prototype has one server-owned scout. Its movement and destination are saved in PostgreSQL. Accounts, combat, matchmaking and full crash recovery are later milestones.
+
+## Controls
+
+Left-click the scout to select it, then right-click the terrain to order it to move. Drag to rotate the camera, scroll to zoom, and use W A S D or arrow keys to pan. The server calculates movement and sends updates to the browser. Refreshing the page restores the current server state.
 
 ## Development checks
 

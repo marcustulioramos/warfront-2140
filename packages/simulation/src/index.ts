@@ -1,9 +1,16 @@
 import type { MoveUnitCommand } from "@warfront/protocol";
-import type { Point, UnitView, WorldView } from "@warfront/shared";
+import { snapshotVersion } from "@warfront/protocol";
+import {
+  WORLD_HALF_SIZE,
+  type Point,
+  type UnitView,
+  type WorldView,
+} from "@warfront/shared";
 
 export interface Clock {
   nowMs(): number;
 }
+
 export class ManualClock implements Clock {
   constructor(private currentMs = 0) {}
   nowMs(): number {
@@ -14,45 +21,58 @@ export class ManualClock implements Clock {
     this.currentMs += ms;
   }
 }
+
 export class RealClock implements Clock {
   nowMs(): number {
     return Date.now();
   }
 }
+
 export interface WorldSnapshot extends WorldView {
+  readonly snapshotVersion: typeof snapshotVersion;
   readonly lastSimulatedAtMs: number;
 }
 
 export class Simulation {
   private world: WorldSnapshot;
+
   constructor(
     private readonly clock: Clock,
     snapshot?: WorldSnapshot,
   ) {
-    this.world = snapshot ?? {
-      matchId: "development",
-      tick: 0,
-      lastSimulatedAtMs: clock.nowMs(),
-      units: [
-        {
-          id: "unit-1",
-          ownerId: "player-1",
-          position: { x: 0, z: 0 },
-          destination: null,
-        },
-      ],
-    };
+    this.world = snapshot
+      ? { ...structuredClone(snapshot), lastSimulatedAtMs: clock.nowMs() }
+      : {
+          snapshotVersion,
+          matchId: "development",
+          tick: 0,
+          lastSimulatedAtMs: clock.nowMs(),
+          units: [
+            {
+              id: "unit-1",
+              ownerId: "player-1",
+              position: { x: 0, z: 0 },
+              destination: null,
+            },
+          ],
+        };
   }
+
   snapshot(): WorldSnapshot {
     return structuredClone(this.world);
   }
+
   command(playerId: string, command: MoveUnitCommand): void {
     const unit = this.world.units.find((item) => item.id === command.unitId);
     if (!unit || unit.ownerId !== playerId)
       throw new Error("Unit is not owned by player");
     const destination = command.destination;
-    if (Math.abs(destination.x) > 100 || Math.abs(destination.z) > 100)
+    if (
+      Math.abs(destination.x) > WORLD_HALF_SIZE ||
+      Math.abs(destination.z) > WORLD_HALF_SIZE
+    ) {
       throw new Error("Destination outside map");
+    }
     this.world = {
       ...this.world,
       units: this.world.units.map((item) =>
@@ -60,28 +80,28 @@ export class Simulation {
       ),
     };
   }
+
   advance(): WorldSnapshot {
     const now = this.clock.nowMs();
     const deltaSeconds = Math.max(
       0,
       Math.min((now - this.world.lastSimulatedAtMs) / 1000, 1),
     );
-    const units: UnitView[] = this.world.units
-      .map((unit) => ({
+    const units: UnitView[] = this.world.units.map((unit) => {
+      const position = moveTowards(
+        unit.position,
+        unit.destination,
+        deltaSeconds * 5,
+      );
+      return {
         ...unit,
-        position: moveTowards(
-          unit.position,
-          unit.destination,
-          deltaSeconds * 5,
-        ),
-      }))
-      .map((unit) => ({
-        ...unit,
+        position,
         destination:
-          unit.destination && distance(unit.position, unit.destination) < 0.001
+          unit.destination && distance(position, unit.destination) < 0.001
             ? null
             : unit.destination,
-      }));
+      };
+    });
     this.world = {
       ...this.world,
       tick: this.world.tick + 1,
@@ -91,9 +111,11 @@ export class Simulation {
     return this.snapshot();
   }
 }
+
 function distance(a: Point, b: Point): number {
   return Math.hypot(a.x - b.x, a.z - b.z);
 }
+
 function moveTowards(
   position: Point,
   destination: Point | null,

@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "@babylonjs/core": "^8.0.0",
-    "@warfront/shared": "workspace:*"
+    "@warfront/shared": "workspace:*",
+    "@warfront/protocol": "workspace:*"
   },
   "devDependencies": {
     "vite": "^7.1.0"
