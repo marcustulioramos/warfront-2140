@@ -16,7 +16,7 @@ This checklist tracks the milestones in the [original project brief](../README.m
 - [x] Add README, architecture, game design, contribution and security documentation.
 - [x] Add a GitHub Actions workflow for format, lint, type checking, tests and builds.
 - [x] Run local formatting, lint, type checking, tests and builds successfully.
-- [ ] Confirm that the GitHub Actions workflow passes on the hosted repository.
+- [x] Confirm that the GitHub Actions workflow passes on the hosted repository.
 
 ## Milestone 1 — single-player simulation prototype
 
