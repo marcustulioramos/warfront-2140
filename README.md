@@ -15,7 +15,7 @@ The health endpoint returns 503 if PostgreSQL is unavailable. The first scene di
 
 With Node.js 24 and pnpm 10: `pnpm install`, then `pnpm format:check`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm build`.
 
-See [architecture](docs/ARCHITECTURE.md), [game design](docs/GAME_DESIGN.md), [contributing](CONTRIBUTING.md), and [security](SECURITY.md).
+See the [progress tracker](docs/PROGRESS.md), [architecture](docs/ARCHITECTURE.md), [game design](docs/GAME_DESIGN.md), [contributing](CONTRIBUTING.md), and [security](SECURITY.md).
 
 ## The game we are building
 
@@ -26,7 +26,8 @@ The complete original project brief below is the long term vision and implementa
 <details>
 <summary>Read the complete original project brief</summary>
 
-```textPROJECT: WARFRONT 2140
+```text
+PROJECT: WARFRONT 2140
 
 ROLE
 
