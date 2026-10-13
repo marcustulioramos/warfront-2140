@@ -5,7 +5,8 @@
   "packageManager": "pnpm@10.18.3",
   "scripts": {
     "build": "pnpm -r build",
-    "typecheck": "pnpm -r typecheck",
+    "build:packages": "pnpm -r --filter ./packages/** build",
+    "typecheck": "pnpm build:packages && pnpm -r typecheck",
     "lint": "eslint .",
     "format:check": "prettier --check .",
     "format": "prettier --write .",
