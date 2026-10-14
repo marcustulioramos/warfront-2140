@@ -73,6 +73,8 @@ canvas {
   border: 1px solid #8a734b;
   border-radius: 0.6rem;
   background: #15252bea;
+  max-height: calc(100vh - 7rem);
+  overflow: auto;
 }
 .economy h2 {
   margin: 0 0 0.5rem;
@@ -100,20 +102,21 @@ canvas {
   cursor: default;
 }
 .armies {
-  position: absolute;
-  top: 4.8rem;
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(285px, calc(100% - 2rem));
-  max-height: min(75vh, 690px);
-  overflow: auto;
-  padding: 0.9rem;
-  border: 1px solid #627f9a;
-  border-radius: 0.6rem;
-  background: #10232ded;
+  margin-top: 0.7rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid #627f9a;
   font-size: 0.78rem;
 }
-.armies h2,
+.armies summary {
+  cursor: pointer;
+  color: #a9dfff;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+.armies summary:focus-visible {
+  outline: 2px solid #a9dfff;
+  outline-offset: 3px;
+}
 .armies h3 {
   margin: 0.35rem 0;
 }

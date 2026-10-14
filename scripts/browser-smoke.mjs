@@ -52,6 +52,25 @@ try {
   await pageA.locator("#match-name").fill(matchName);
   await pageA.locator("#create-form button").click();
   await pageA.locator("#active-match").waitFor({ state: "visible" });
+  assert.equal(
+    await pageA.locator(".armies").evaluate((panel) => panel.open),
+    false,
+  );
+  assert.equal(
+    await pageA.evaluate(() => {
+      const panel = document.querySelector(".armies")?.getBoundingClientRect();
+      const economy = document
+        .querySelector(".economy")
+        ?.getBoundingClientRect();
+      return (
+        !!panel &&
+        !!economy &&
+        panel.left >= economy.left &&
+        panel.right <= economy.right
+      );
+    }),
+    true,
+  );
 
   await register(pageB, bobName);
   await pageB.locator("#refresh-matches").click();
@@ -202,6 +221,7 @@ try {
       document.querySelector("#build-factory")?.hasAttribute("disabled"),
   );
   console.log("Browser smoke: economy restored after refresh");
+  await pageA.locator(".armies summary").click();
   await pageA.locator('#army-unit-list input[type="checkbox"]').first().check();
   await pageA.locator("#army-name").fill("Browser Alpha");
   await pageA.locator('#create-army-form button[type="submit"]').click();

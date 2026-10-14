@@ -55,85 +55,85 @@
               Produce Artillery · 60 ore
             </button>
           </div>
-        </aside>
-        <aside class="armies" aria-label="Offline army orders">
-          <h2>Offline armies</h2>
-          <p>
-            Choose units, name an army, then send it to a map position. Orders
-            continue while you are away.
-          </p>
-          <div id="army-unit-list"></div>
-          <form id="create-army-form">
-            <label
-              >Army name
-              <input
-                id="army-name"
-                required
-                minlength="3"
-                maxlength="32"
-                placeholder="Alpha"
-            /></label>
-            <button type="submit">Create army</button>
-          </form>
-          <form id="order-army-form">
-            <label
-              >Army
-              <select id="army-select" required></select
-            ></label>
-            <label
-              >X
-              <input
-                id="army-x"
-                type="number"
-                min="-20"
-                max="20"
-                step="0.5"
-                value="10"
-                required
-            /></label>
-            <label
-              >Z
-              <input
-                id="army-z"
-                type="number"
-                min="-20"
-                max="20"
-                step="0.5"
-                value="0"
-                required
-            /></label>
-            <label
-              >Order
-              <select id="army-stance">
-                <option value="attack">Attack</option>
-                <option value="defend">Defend</option>
-              </select></label
-            >
-            <label
-              >Retreat at health below
-              <input
-                id="army-retreat"
-                type="number"
-                min="0"
-                max="90"
-                step="5"
-                value="25"
-                required
-              />%</label
-            >
-            <label
-              >After battle
-              <select id="army-post-battle">
-                <option value="hold">Hold position</option>
-                <option value="return">Return home</option>
-              </select></label
-            >
-            <button type="submit">Send army</button>
-          </form>
-          <p id="army-progress">No army orders yet.</p>
-          <h3>Battle reports</h3>
-          <p id="reconnect-summary"></p>
-          <ul id="battle-reports"></ul>
+          <details class="armies" aria-label="Offline army orders">
+            <summary>Offline armies</summary>
+            <p>
+              Choose units, name an army, then send it to a map position. Orders
+              continue while you are away.
+            </p>
+            <div id="army-unit-list"></div>
+            <form id="create-army-form">
+              <label
+                >Army name
+                <input
+                  id="army-name"
+                  required
+                  minlength="3"
+                  maxlength="32"
+                  placeholder="Alpha"
+              /></label>
+              <button type="submit">Create army</button>
+            </form>
+            <form id="order-army-form">
+              <label
+                >Army
+                <select id="army-select" required></select
+              ></label>
+              <label
+                >X
+                <input
+                  id="army-x"
+                  type="number"
+                  min="-20"
+                  max="20"
+                  step="0.5"
+                  value="10"
+                  required
+              /></label>
+              <label
+                >Z
+                <input
+                  id="army-z"
+                  type="number"
+                  min="-20"
+                  max="20"
+                  step="0.5"
+                  value="0"
+                  required
+              /></label>
+              <label
+                >Order
+                <select id="army-stance">
+                  <option value="attack">Attack</option>
+                  <option value="defend">Defend</option>
+                </select></label
+              >
+              <label
+                >Retreat at health below
+                <input
+                  id="army-retreat"
+                  type="number"
+                  min="0"
+                  max="90"
+                  step="5"
+                  value="25"
+                  required
+                />%</label
+              >
+              <label
+                >After battle
+                <select id="army-post-battle">
+                  <option value="hold">Hold position</option>
+                  <option value="return">Return home</option>
+                </select></label
+              >
+              <button type="submit">Send army</button>
+            </form>
+            <p id="army-progress">No army orders yet.</p>
+            <h3>Battle reports</h3>
+            <p id="reconnect-summary"></p>
+            <ul id="battle-reports"></ul>
+          </details>
         </aside>
         <section id="lobby" class="lobby" aria-label="Multiplayer lobby">
           <div class="lobby-card">
