@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { describe, expect, it } from "vitest";
 import { ManualClock, Simulation } from "@warfront/simulation";
+import { MatchHost } from "./match-host.js";
 import { WorldStore } from "./world-store.js";
 
 const databaseUrl = process.env.DATABASE_URL_TEST;
@@ -233,6 +234,124 @@ describeWithDatabase("PostgreSQL world recovery", () => {
       expect(loaded?.resourceNodes[0]?.id).toBe("node-veteran");
       expect(loaded?.units).toHaveLength(3);
     } finally {
+      await pool.query("DELETE FROM world_snapshots WHERE match_id = $1", [
+        matchId,
+      ]);
+      await pool.end();
+    }
+  });
+
+  it("journals commands and applies scheduled jobs once across restarts", async () => {
+    if (!databaseUrl) throw new Error("DATABASE_URL_TEST is required");
+    const pool = new pg.Pool({ connectionString: databaseUrl });
+    const store = new WorldStore(pool);
+    const matchId = `durable-${randomUUID()}`;
+    const errors: unknown[] = [];
+    try {
+      await store.migrate();
+      const clock = new ManualClock(1000);
+      const host = await MatchHost.create(
+        clock,
+        store,
+        matchId,
+        () => undefined,
+        (error) => errors.push(error),
+      );
+      await host.addPlayer("builder");
+      const extractor = {
+        protocolVersion: 1 as const,
+        commandId: randomUUID(),
+        type: "BUILD_STRUCTURE" as const,
+        kind: "extractor" as const,
+        nodeId: "node-builder",
+      };
+      await host.command("builder", extractor);
+      await host.command("builder", {
+        protocolVersion: 1,
+        commandId: randomUUID(),
+        type: "BUILD_STRUCTURE",
+        kind: "factory",
+        nodeId: null,
+      });
+      expect(
+        (
+          await pool.query(
+            "SELECT count(*)::int AS total FROM match_commands WHERE match_id = $1",
+            [matchId],
+          )
+        ).rows[0]?.total,
+      ).toBe(2);
+      expect(
+        (
+          await pool.query(
+            "SELECT count(*)::int AS total FROM match_scheduled_events WHERE match_id = $1",
+            [matchId],
+          )
+        ).rows[0]?.total,
+      ).toBe(2);
+      clock.advanceBy(20_000);
+      const resumed = await MatchHost.create(
+        clock,
+        store,
+        matchId,
+        () => undefined,
+        (error) => errors.push(error),
+      );
+      expect(resumed.snapshot().resources[0]?.ore).toBe(20);
+      const production = {
+        protocolVersion: 1 as const,
+        commandId: randomUUID(),
+        type: "PRODUCE_UNIT" as const,
+        factoryId: "factory-builder",
+        role: "scout" as const,
+      };
+      await resumed.command("builder", production);
+      clock.advanceBy(9_000);
+      const recovered = await MatchHost.create(
+        clock,
+        store,
+        matchId,
+        () => undefined,
+        (error) => errors.push(error),
+      );
+      expect(
+        recovered
+          .snapshot()
+          .units.filter(
+            (unit) => unit.id === `produced-${production.commandId}`,
+          ),
+      ).toHaveLength(1);
+      const beforeRetry = recovered.snapshot();
+      await recovered.command("builder", production);
+      expect(recovered.snapshot()).toEqual(beforeRetry);
+      await expect(
+        recovered.command("builder", { ...production, role: "medium" }),
+      ).rejects.toThrow("already used");
+      expect(
+        (
+          await pool.query(
+            "SELECT count(*)::int AS total FROM match_commands WHERE match_id = $1",
+            [matchId],
+          )
+        ).rows[0]?.total,
+      ).toBe(3);
+      const events = await pool.query<{ applied_at_ms: number | null }>(
+        "SELECT applied_at_ms FROM match_scheduled_events WHERE match_id = $1",
+        [matchId],
+      );
+      expect(events.rows).toHaveLength(3);
+      expect(events.rows.every((event) => event.applied_at_ms !== null)).toBe(
+        true,
+      );
+      expect(errors).toEqual([]);
+    } finally {
+      await pool.query("DELETE FROM match_commands WHERE match_id = $1", [
+        matchId,
+      ]);
+      await pool.query(
+        "DELETE FROM match_scheduled_events WHERE match_id = $1",
+        [matchId],
+      );
       await pool.query("DELETE FROM world_snapshots WHERE match_id = $1", [
         matchId,
       ]);

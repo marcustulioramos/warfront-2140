@@ -59,14 +59,11 @@ export class MatchHost {
       void this.enqueue(async () => {
         const before = this.simulation.snapshot();
         const state = this.simulation.advance();
-        const rosterChanged = state.units.length !== before.units.length;
-        if (rosterChanged || state.tick % 10 === 0) {
-          try {
-            await this.store.save(state);
-          } catch (error) {
-            this.simulation = new Simulation(this.clock, before, this.matchId);
-            throw error;
-          }
+        try {
+          await this.store.save(state);
+        } catch (error) {
+          this.simulation = new Simulation(this.clock, before, this.matchId);
+          throw error;
         }
         this.publish(state);
       })
@@ -79,11 +76,18 @@ export class MatchHost {
 
   command(playerId: string, command: ClientCommand): Promise<WorldSnapshot> {
     return this.enqueue(async () => {
+      if (await this.store.isDuplicate(this.matchId, playerId, command))
+        return this.simulation.snapshot();
       const before = this.simulation.snapshot();
       this.simulation.command(playerId, command);
       const state = this.simulation.snapshot();
       try {
-        await this.store.save(state);
+        const applied = await this.store.applyCommand(state, playerId, command);
+        if (!applied) {
+          await this.store.isDuplicate(this.matchId, playerId, command);
+          this.simulation = new Simulation(this.clock, before, this.matchId);
+          return this.simulation.snapshot();
+        }
       } catch (error) {
         this.simulation = new Simulation(this.clock, before, this.matchId);
         throw error;

@@ -2,7 +2,7 @@
 
 This checklist tracks the milestones in the [original project brief](../README.md#the-game-we-are-building). A checked box means the work is implemented and verified; an unchecked box is still to do. Update this file in the same pull request as the work it records.
 
-**Current stage:** Milestone 4 two-player combat and economy prototype is running locally. Durable event recovery is next.
+**Current stage:** Milestone 5 durable two-player combat and economy prototype is running locally. Offline armies are next.
 
 ## Milestone 0 — architecture and scaffolding
 
@@ -47,9 +47,9 @@ This checklist tracks the milestones in the [original project brief](../README.m
 
 ## Milestone 5 — persistence
 
-- [ ] Add durable commands, versioned world snapshots and scheduled events.
-- [ ] Restore movement, construction and other pending work after a server restart.
-- [ ] Test crash recovery and prevent duplicate grants or event effects.
+- [x] Add durable commands, versioned world snapshots and scheduled events.
+- [x] Restore movement, construction and other pending work after a server restart.
+- [x] Test crash recovery and prevent duplicate grants or event effects.
 
 ## Milestone 6 — offline armies
 

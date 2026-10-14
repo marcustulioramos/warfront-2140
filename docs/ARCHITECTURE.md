@@ -25,11 +25,17 @@ The lobby is intentionally small: matches are listed by name and player count, p
 
 Each player has a scout, medium assault unit and artillery. Role statistics define movement speed, health, damage, range and reload time. An attack order names an enemy unit; the server moves the attacker into range and resolves shots with a clock-driven reload timer. Damage on each tick is accumulated before it is applied, so opposing units can destroy each other on the same tick. No client-provided damage or hit result is trusted, and combat uses no uncontrolled randomness.
 
-Snapshot version 2 stores each unit's health, role, target and remaining reload time. It also stores the player roster independently of living units, so reconnecting cannot recreate a destroyed army. Snapshot version 1 is upgraded on load, preserving existing matches and adding the two new roles. A tick that destroys a unit is saved before its new state is broadcast. Clients render health bars, shot lines and a short destruction flash from server combat events. Full event replay and other offline systems remain Milestone 5 work.
+Snapshot version 2 stores each unit's health, role, target and remaining reload time. It also stores the player roster independently of living units, so reconnecting cannot recreate a destroyed army. Snapshot version 1 is upgraded on load, preserving existing matches and adding the two new roles. Clients render health bars, shot lines and a short destruction flash from server combat events. Offline army behavior remains Milestone 6 work.
 
 ## Milestone 4 economy
 
 The simulation owns ore balances, resource nodes, buildings and factory jobs. Client commands specify a building type or production role; the server checks membership, ownership, available ore, construction state and factory capacity. A completed extractor earns ore from server timestamps. Construction and production jobs store absolute completion times in snapshot version 3. On restart, the host settles elapsed economy time and saves the result before sending it to clients. Movement and combat remain paused during server downtime. Version 2 combat snapshots are upgraded on load with starting ore and nodes; version 1 is upgraded through the same economy initialization.
+
+## Milestone 5 persistence
+
+The third SQL migration adds a match command journal keyed by match and command ID, plus scheduled-event rows for building and unit completion. An accepted command and its resulting versioned snapshot commit in one PostgreSQL transaction. Repeating the exact command ID returns the existing state; using that ID for a different order is rejected. Snapshot writes also register pending events and mark due events applied in the same transaction. The simulation derives resource income and job completion from saved timestamps, so restarting it cannot grant the same unit twice.
+
+Every simulation tick is saved before being broadcast. This removes the previous two-second recovery gap for movement and combat. On startup, pending economy work is settled and saved before the first client snapshot. Movement and combat pause while the server is stopped; construction, ore income and production catch up by elapsed server time. The current single-host development deployment is the write owner for a match. Multi-host coordination and throughput are later scaling work.
 
 ## Database access
 

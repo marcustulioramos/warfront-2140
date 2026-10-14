@@ -9,7 +9,7 @@ Warfront 2140 is an open source, browser based persistent RTS in early developme
 3. Run `docker compose up --build`.
 4. Open http://localhost:5173. The server health endpoint is http://localhost:3000/health.
 
-The health endpoint returns 503 if PostgreSQL is unavailable. Create an account, create a match, then have a second player create an account and join that match. Both players may choose the same faction; their units have different team colours. Each player commands a scout, a medium assault unit and artillery. The server calculates movement, combat, construction, mining and unit production. Match state is saved in PostgreSQL and can be resumed after a refresh or server restart. Full command/event recovery remains a later milestone.
+The health endpoint returns 503 if PostgreSQL is unavailable. Create an account, create a match, then have a second player create an account and join that match. Both players may choose the same faction; their units have different team colours. Each player commands a scout, a medium assault unit and artillery. The server calculates movement, combat, construction, mining and unit production. Accepted commands, scheduled work and every published simulation tick are saved in PostgreSQL, so a match can resume after a refresh or server restart.
 
 ## Controls
 
@@ -21,7 +21,7 @@ The Economy panel shows ore and construction progress. Each player starts with 1
 
 With Node.js 24 and pnpm 10: `pnpm install`, then `pnpm format:check`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm build`.
 
-With Docker Compose running and Chrome installed, `pnpm test:browser` checks two isolated browser profiles, visible combat and rejoining a match. The CI workflow also runs database integration tests and a two-session WebSocket smoke test covering a server crash after a unit is destroyed.
+With Docker Compose running and Chrome installed, `pnpm test:browser` checks two isolated browser profiles, visible combat and rejoining a match. The CI workflow also runs database integration tests and a two-session WebSocket smoke test covering a forced server crash during construction and movement.
 
 See the [progress tracker](docs/PROGRESS.md), [architecture](docs/ARCHITECTURE.md), [game design](docs/GAME_DESIGN.md), [contributing](CONTRIBUTING.md), and [security](SECURITY.md).
 

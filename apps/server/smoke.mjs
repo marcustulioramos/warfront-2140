@@ -205,11 +205,52 @@ try {
     afterDeath.state.units.some((unit) => unit.id === `unit-${bob.data.id}`),
     false,
   );
+  const buildId = randomUUID();
+  a.socket.send(
+    JSON.stringify({
+      protocolVersion: 1,
+      commandId: buildId,
+      type: "BUILD_STRUCTURE",
+      kind: "extractor",
+      nodeId: `node-${alice.data.id}`,
+    }),
+  );
+  await until(
+    a,
+    (message) => message.type === "ACK" && message.commandId === buildId,
+  );
+  const marchId = randomUUID();
+  a.socket.send(
+    JSON.stringify({
+      protocolVersion: 1,
+      commandId: marchId,
+      type: "MOVE_UNIT",
+      unitId: `medium-${alice.data.id}`,
+      destination: { x: 15, z: -4 },
+    }),
+  );
+  await until(
+    a,
+    (message) => message.type === "ACK" && message.commandId === marchId,
+  );
+  await until(
+    a,
+    (message) =>
+      message.type === "SNAPSHOT" &&
+      message.state.buildings.some(
+        (building) => building.id === `extractor-${alice.data.id}`,
+      ) &&
+      message.state.units.some(
+        (unit) =>
+          unit.id === `medium-${alice.data.id}` && unit.destination?.x === 15,
+      ),
+  );
   a.socket.close();
   b.socket.close();
   const stopped = new Promise((resolve) => server.once("exit", resolve));
   server.kill("SIGKILL");
   await stopped;
+  await new Promise((resolve) => setTimeout(resolve, 11_000));
   server = startServer();
   await waitForServer();
   const afterRestart = await connect(match.data.id, bob.cookie);
@@ -222,8 +263,28 @@ try {
     recovered.state.units.some((unit) => unit.id === `unit-${bob.data.id}`),
     false,
   );
+  const extractor = recovered.state.buildings.find(
+    (building) => building.id === `extractor-${alice.data.id}`,
+  );
+  assert.ok(extractor);
+  assert.ok(extractor.readyAtMs <= Date.now());
+  assert.ok(
+    recovered.state.resources.find(
+      (balance) => balance.playerId === alice.data.id,
+    )?.ore >= 60,
+  );
+  const marching = recovered.state.units.find(
+    (unit) => unit.id === `medium-${alice.data.id}`,
+  );
+  assert.equal(marching?.destination?.x, 15);
+  assert.ok(
+    marching.position.x < 0,
+    "movement must pause during server downtime",
+  );
   afterRestart.socket.close();
-  console.log("Two-player auth, combat, destruction and crash recovery passed");
+  console.log(
+    "Combat, construction and movement survived a forced server restart",
+  );
 } finally {
   server.kill("SIGTERM");
 }

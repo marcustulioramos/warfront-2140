@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import pg from "pg";
+import type { ClientCommand } from "@warfront/protocol";
 import {
   legacyWorldSnapshotSchema,
   combatWorldSnapshotSchema,
@@ -9,7 +10,11 @@ import {
 import { UNIT_STATS, WORLD_HALF_SIZE, type UnitView } from "@warfront/shared";
 import { startingEconomy, type WorldSnapshot } from "@warfront/simulation";
 
-const migrations = ["0001_world_snapshots", "0002_multiplayer"];
+const migrations = [
+  "0001_world_snapshots",
+  "0002_multiplayer",
+  "0003_durable_events",
+];
 
 export class WorldStore {
   constructor(private readonly pool: pg.Pool) {}
@@ -112,12 +117,98 @@ export class WorldStore {
   }
 
   async save(snapshot: WorldSnapshot): Promise<void> {
-    await this.pool.query(
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await this.writeSnapshot(client, snapshot);
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async isDuplicate(
+    matchId: string,
+    playerId: string,
+    command: ClientCommand,
+  ): Promise<boolean> {
+    const result = await this.pool.query<{ player_id: string; same: boolean }>(
+      `SELECT player_id, command = $3::jsonb AS same FROM match_commands
+       WHERE match_id = $1 AND command_id = $2`,
+      [matchId, command.commandId, JSON.stringify(command)],
+    );
+    const recorded = result.rows[0];
+    if (!recorded) return false;
+    if (recorded.player_id !== playerId || !recorded.same)
+      throw new Error("Command ID already used for a different order");
+    return true;
+  }
+
+  async applyCommand(
+    snapshot: WorldSnapshot,
+    playerId: string,
+    command: ClientCommand,
+  ): Promise<boolean> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const inserted = await client.query(
+        `INSERT INTO match_commands (match_id, command_id, player_id, command)
+         VALUES ($1, $2, $3, $4::jsonb) ON CONFLICT DO NOTHING`,
+        [
+          snapshot.matchId,
+          command.commandId,
+          playerId,
+          JSON.stringify(command),
+        ],
+      );
+      if (inserted.rowCount === 0) {
+        await client.query("ROLLBACK");
+        return false;
+      }
+      await this.writeSnapshot(client, snapshot);
+      await client.query("COMMIT");
+      return true;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  private async writeSnapshot(
+    client: pg.PoolClient,
+    snapshot: WorldSnapshot,
+  ): Promise<void> {
+    await client.query(
       `INSERT INTO world_snapshots (match_id, snapshot)
        VALUES ($1, $2::jsonb)
        ON CONFLICT (match_id)
        DO UPDATE SET snapshot = EXCLUDED.snapshot, updated_at = NOW()`,
       [snapshot.matchId, JSON.stringify(snapshot)],
+    );
+    for (const building of snapshot.buildings) {
+      await client.query(
+        `INSERT INTO match_scheduled_events (match_id, event_id, kind, due_at_ms)
+         VALUES ($1, $2, 'building_ready', $3) ON CONFLICT DO NOTHING`,
+        [snapshot.matchId, `building-${building.id}`, building.readyAtMs],
+      );
+    }
+    for (const job of snapshot.production) {
+      await client.query(
+        `INSERT INTO match_scheduled_events (match_id, event_id, kind, due_at_ms)
+         VALUES ($1, $2, 'unit_ready', $3) ON CONFLICT DO NOTHING`,
+        [snapshot.matchId, `unit-${job.id}`, job.readyAtMs],
+      );
+    }
+    await client.query(
+      `UPDATE match_scheduled_events SET applied_at_ms = $2
+       WHERE match_id = $1 AND applied_at_ms IS NULL AND due_at_ms <= $2`,
+      [snapshot.matchId, snapshot.lastSimulatedAtMs],
     );
   }
 }
