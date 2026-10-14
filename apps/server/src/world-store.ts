@@ -12,6 +12,7 @@ export class WorldStore {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock(2140, 1)");
       await client.query(
         "CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY)",
       );
