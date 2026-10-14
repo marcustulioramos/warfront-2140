@@ -11,9 +11,16 @@ import {
 import {
   protocolVersion,
   serverMessageSchema,
+  type AttackUnitCommand,
   type MoveUnitCommand,
 } from "@warfront/protocol";
-import { WORLD_HALF_SIZE, type Point, type WorldView } from "@warfront/shared";
+import {
+  UNIT_STATS,
+  WORLD_HALF_SIZE,
+  type Point,
+  type UnitRole,
+  type WorldView,
+} from "@warfront/shared";
 import "./style.css";
 
 function element<T extends HTMLElement>(selector: string): T {
@@ -27,6 +34,8 @@ const status = element<HTMLElement>("#status");
 const selection = element<HTMLElement>("#selection");
 const order = element<HTMLElement>("#order");
 const coordinates = element<HTMLElement>("#coordinates");
+const unitRoster = element<HTMLElement>("#unit-roster");
+const combatLog = element<HTMLElement>("#combat-log");
 const lobbyPanel = element<HTMLElement>("#lobby");
 const lobbyMessage = element<HTMLElement>("#lobby-message");
 const authForm = element<HTMLFormElement>("#auth-form");
@@ -120,6 +129,13 @@ function showLobby(): void {
   units.clear();
   selectionRing.setEnabled(false);
   destinationRing.setEnabled(false);
+  for (const bar of healthBars.values()) bar.dispose();
+  healthBars.clear();
+  targetPositions.clear();
+  unitRoster.replaceChildren();
+  unitButtons.clear();
+  combatLog.textContent = "No combat yet.";
+  lastCombatTick = -1;
   lobbyPanel.hidden = false;
   authForm.hidden = !!me;
   matchesPanel.hidden = !me;
@@ -297,18 +313,30 @@ for (const [x, z] of [
 }
 
 const units = new Map<string, ReturnType<typeof MeshBuilder.CreateBox>>();
+const healthBars = new Map<string, ReturnType<typeof MeshBuilder.CreateBox>>();
 const targetPositions = new Map<string, Vector3>();
+const unitButtons = new Map<string, HTMLButtonElement>();
 function unitMesh(
   id: string,
   owned: boolean,
+  role: UnitRole,
 ): ReturnType<typeof MeshBuilder.CreateBox> {
   let mesh = units.get(id);
   if (!mesh) {
-    mesh = MeshBuilder.CreateBox(
-      id,
-      { width: 1.7, depth: 2.4, height: 1 },
-      scene,
-    );
+    mesh =
+      role === "artillery"
+        ? MeshBuilder.CreateCylinder(
+            id,
+            { diameter: 1.8, height: 1.2, tessellation: 8 },
+            scene,
+          )
+        : MeshBuilder.CreateBox(
+            id,
+            role === "medium"
+              ? { width: 2.2, depth: 2.8, height: 1.1 }
+              : { width: 1.4, depth: 2, height: 0.7 },
+            scene,
+          );
     mesh.position.y = 0.6;
     const material = new StandardMaterial(`material-${id}`, scene);
     material.diffuseColor = owned
@@ -316,6 +344,16 @@ function unitMesh(
       : new Color3(0.95, 0.38, 0.12);
     mesh.material = material;
     units.set(id, mesh);
+    const bar = MeshBuilder.CreateBox(
+      `health-${id}`,
+      { width: 1.8, depth: 0.15, height: 0.1 },
+      scene,
+    );
+    bar.isPickable = false;
+    const barMaterial = new StandardMaterial(`health-material-${id}`, scene);
+    barMaterial.emissiveColor = new Color3(0.25, 0.95, 0.45);
+    bar.material = barMaterial;
+    healthBars.set(id, bar);
   }
   return mesh;
 }
@@ -350,19 +388,36 @@ let socket: WebSocket | undefined;
 let currentState: WorldView | undefined;
 let hasSnapshot = false;
 let selectedId: string | undefined;
+let lastCombatTick = -1;
 const keys = new Set<string>();
+
+function roleName(role: UnitRole): string {
+  return role === "medium"
+    ? "Medium Assault"
+    : role === "artillery"
+      ? "Artillery"
+      : "Scout";
+}
 
 function setSelection(id: string | undefined): void {
   selectedId = id;
   selectionRing.setEnabled(!!id);
-  selection.textContent = id
-    ? "Scout selected — ready for orders."
-    : "Select your blue scout.";
+  const unit = currentState?.units.find((item) => item.id === id);
+  selection.textContent = unit
+    ? `${roleName(unit.role)} selected — ${unit.health}/${unit.maxHealth} HP · ${UNIT_STATS[unit.role].weapon}.`
+    : "Select one of your blue units.";
 }
 
 function showState(state: WorldView): void {
+  const previous = currentState;
   currentState = state;
-  if (activeMatch && state.units.length !== activeMatch.players.length) {
+  if (
+    activeMatch &&
+    state.units.some(
+      (unit) =>
+        !activeMatch?.players.some((player) => player.id === unit.ownerId),
+    )
+  ) {
     const currentId = activeMatch.id;
     void api<Match[]>("/matches")
       .then((matches) => {
@@ -379,26 +434,115 @@ function showState(state: WorldView): void {
       })
       .catch(() => undefined);
   }
-  for (const scout of state.units) {
-    const mesh = unitMesh(scout.id, scout.ownerId === myPlayerId);
-    const target = new Vector3(scout.position.x, 0.6, scout.position.z);
-    targetPositions.set(scout.id, target);
+  const visibleIds = new Set(state.units.map((unit) => unit.id));
+  for (const [id, mesh] of units) {
+    if (visibleIds.has(id)) continue;
+    mesh.dispose();
+    units.delete(id);
+    healthBars.get(id)?.dispose();
+    healthBars.delete(id);
+    targetPositions.delete(id);
+  }
+  for (const unit of state.units) {
+    const mesh = unitMesh(unit.id, unit.ownerId === myPlayerId, unit.role);
+    const target = new Vector3(unit.position.x, 0.6, unit.position.z);
+    targetPositions.set(unit.id, target);
     if (!hasSnapshot) mesh.position.copyFrom(target);
+    const bar = healthBars.get(unit.id);
+    if (bar) {
+      bar.scaling.x = unit.health / unit.maxHealth;
+      const material = bar.material as StandardMaterial;
+      material.emissiveColor =
+        unit.health / unit.maxHealth < 0.35
+          ? new Color3(1, 0.2, 0.15)
+          : new Color3(0.25, 0.95, 0.45);
+    }
   }
   hasSnapshot = true;
-  const scout = state.units.find((item) => item.ownerId === myPlayerId);
-  if (!scout) return;
-  coordinates.textContent = `Position: ${scout.position.x.toFixed(1)}, ${scout.position.z.toFixed(1)} · Server tick ${state.tick}`;
-  destinationRing.setEnabled(scout.destination !== null);
-  if (scout.destination) {
-    destinationRing.position.set(
-      scout.destination.x,
-      0.12,
-      scout.destination.z,
-    );
-    order.textContent = `Moving to ${scout.destination.x.toFixed(1)}, ${scout.destination.z.toFixed(1)}`;
+  if (selectedId && !visibleIds.has(selectedId)) setSelection(undefined);
+  const owned = state.units.filter((unit) => unit.ownerId === myPlayerId);
+  const ownedIds = new Set(owned.map((unit) => unit.id));
+  for (const [id, button] of unitButtons) {
+    if (ownedIds.has(id)) continue;
+    button.remove();
+    unitButtons.delete(id);
+  }
+  for (const unit of owned) {
+    let button = unitButtons.get(unit.id);
+    if (!button) {
+      button = document.createElement("button");
+      button.type = "button";
+      button.addEventListener("click", () => setSelection(unit.id));
+      unitButtons.set(unit.id, button);
+      unitRoster.append(button);
+    }
+    button.textContent = `${roleName(unit.role)} · ${unit.health}/${unit.maxHealth} HP`;
+    button.title = `${UNIT_STATS[unit.role].weapon}: ${UNIT_STATS[unit.role].damage} damage, ${UNIT_STATS[unit.role].range} range`;
+    button.className = selectedId === unit.id ? "unit-active" : "";
+  }
+  if (owned.length === 0) unitRoster.textContent = "All units destroyed.";
+  const focused = owned.find((unit) => unit.id === selectedId) ?? owned[0];
+  if (!focused) {
+    coordinates.textContent = `Server tick ${state.tick}`;
+    order.textContent = "No surviving units.";
+    destinationRing.setEnabled(false);
   } else {
-    order.textContent = "Holding position.";
+    coordinates.textContent = `Position: ${focused.position.x.toFixed(1)}, ${focused.position.z.toFixed(1)} · Server tick ${state.tick}`;
+    destinationRing.setEnabled(focused.destination !== null);
+    if (focused.destination) {
+      destinationRing.position.set(
+        focused.destination.x,
+        0.12,
+        focused.destination.z,
+      );
+      order.textContent = `Moving to ${focused.destination.x.toFixed(1)}, ${focused.destination.z.toFixed(1)}`;
+    } else if (focused.targetId) {
+      order.textContent = `Attacking ${state.units.find((unit) => unit.id === focused.targetId)?.role ?? "enemy"}.`;
+    } else {
+      order.textContent = "Holding position.";
+    }
+  }
+  if (state.tick > lastCombatTick) {
+    lastCombatTick = state.tick;
+    for (const event of state.combatEvents) {
+      const beam = MeshBuilder.CreateLines(
+        `shot-${state.tick}-${event.attackerId}`,
+        {
+          points: [
+            new Vector3(event.from.x, 1.1, event.from.z),
+            new Vector3(event.to.x, 1.1, event.to.z),
+          ],
+        },
+        scene,
+      );
+      beam.color = new Color3(1, 0.8, 0.25);
+      beam.isPickable = false;
+      window.setTimeout(() => beam.dispose(), 220);
+      if (event.destroyed) {
+        const burst = MeshBuilder.CreateSphere(
+          `burst-${state.tick}-${event.targetId}`,
+          { diameter: 2.3 },
+          scene,
+        );
+        burst.position.set(event.to.x, 1, event.to.z);
+        burst.isPickable = false;
+        const burstMaterial = new StandardMaterial(
+          `burst-material-${state.tick}-${event.targetId}`,
+          scene,
+        );
+        burstMaterial.emissiveColor = new Color3(1, 0.35, 0.05);
+        burst.material = burstMaterial;
+        window.setTimeout(() => {
+          burst.dispose();
+          burstMaterial.dispose();
+        }, 300);
+      }
+      const attacker = previous?.units.find(
+        (unit) => unit.id === event.attackerId,
+      );
+      const target = previous?.units.find((unit) => unit.id === event.targetId);
+      combatLog.textContent = `${attacker ? roleName(attacker.role) : "Unit"} hit ${target ? roleName(target.role) : "enemy"} for ${event.damage}${event.destroyed ? " — destroyed!" : ""}`;
+    }
   }
 }
 
@@ -428,6 +572,22 @@ function sendMove(destination: Point): void {
   status.textContent = "Move order sent. Waiting for server confirmation…";
 }
 
+function sendAttack(targetId: string): void {
+  if (!socket || socket.readyState !== WebSocket.OPEN || !selectedId) {
+    status.textContent = "Select one of your units before attacking.";
+    return;
+  }
+  const command: AttackUnitCommand = {
+    protocolVersion,
+    commandId: commandId(),
+    type: "ATTACK_UNIT",
+    unitId: selectedId,
+    targetId,
+  };
+  socket.send(JSON.stringify(command));
+  status.textContent = "Attack order sent. Waiting for server confirmation…";
+}
+
 canvas.addEventListener("contextmenu", (event) => event.preventDefault());
 scene.onPointerDown = (event, pick) => {
   if (event.button === 0) {
@@ -440,6 +600,17 @@ scene.onPointerDown = (event, pick) => {
     );
     setSelection(owned?.[0]);
   } else if (event.button === 2 && selectedId) {
+    const enemy = [...units.entries()].find(
+      ([id, mesh]) =>
+        mesh === pick?.pickedMesh &&
+        currentState?.units.some(
+          (unit) => unit.id === id && unit.ownerId !== myPlayerId,
+        ),
+    );
+    if (enemy) {
+      sendAttack(enemy[0]);
+      return;
+    }
     const terrainPick = scene.pick(
       scene.pointerX,
       scene.pointerY,
@@ -474,7 +645,7 @@ function connect(): void {
       if (message.type === "SNAPSHOT") showState(message.state);
       else if (message.type === "WELCOME") myPlayerId = message.playerId;
       else if (message.type === "ACK")
-        status.textContent = "Move order accepted by the server.";
+        status.textContent = "Order accepted by the server.";
       else status.textContent = `Order rejected: ${message.message}`;
     } catch {
       status.textContent = "Received an invalid server message.";
@@ -525,6 +696,14 @@ engine.runRenderLoop(() => {
       mesh.position.copyFrom(
         Vector3.Lerp(mesh.position, target, Math.min(1, delta * 12)),
       );
+    const bar = healthBars.get(id);
+    if (bar) {
+      bar.position.set(
+        mesh.position.x - (1 - bar.scaling.x) * 0.9,
+        1.55,
+        mesh.position.z,
+      );
+    }
   }
   const selectedMesh = selectedId ? units.get(selectedId) : undefined;
   if (selectedMesh)

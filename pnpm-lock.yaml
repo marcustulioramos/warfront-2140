@@ -56,6 +56,9 @@ importers:
       "@warfront/protocol":
         specifier: workspace:*
         version: link:../../packages/protocol
+      "@warfront/shared":
+        specifier: workspace:*
+        version: link:../../packages/shared
       "@warfront/simulation":
         specifier: workspace:*
         version: link:../../packages/simulation

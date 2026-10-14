@@ -1,4 +1,4 @@
-import type { MoveUnitCommand } from "@warfront/protocol";
+import type { ClientCommand } from "@warfront/protocol";
 import {
   Simulation,
   type Clock,
@@ -43,9 +43,18 @@ export class MatchHost {
       if (this.tickPending) return;
       this.tickPending = true;
       void this.enqueue(async () => {
+        const before = this.simulation.snapshot();
         const state = this.simulation.advance();
+        const destroyed = state.units.length < before.units.length;
+        if (destroyed || state.tick % 10 === 0) {
+          try {
+            await this.store.save(state);
+          } catch (error) {
+            this.simulation = new Simulation(this.clock, before, this.matchId);
+            throw error;
+          }
+        }
         this.publish(state);
-        if (state.tick % 10 === 0) await this.store.save(state);
       })
         .catch(this.onError)
         .finally(() => {
@@ -54,7 +63,7 @@ export class MatchHost {
     }, 200);
   }
 
-  command(playerId: string, command: MoveUnitCommand): Promise<WorldSnapshot> {
+  command(playerId: string, command: ClientCommand): Promise<WorldSnapshot> {
     return this.enqueue(async () => {
       const before = this.simulation.snapshot();
       this.simulation.command(playerId, command);
@@ -62,7 +71,7 @@ export class MatchHost {
       try {
         await this.store.save(state);
       } catch (error) {
-        this.simulation = new Simulation(this.clock, before);
+        this.simulation = new Simulation(this.clock, before, this.matchId);
         throw error;
       }
       this.publish(state);

@@ -1,7 +1,7 @@
 import Fastify from "fastify";
 import websocket from "@fastify/websocket";
 import pg from "pg";
-import { moveUnitCommandSchema, type ServerMessage } from "@warfront/protocol";
+import { clientCommandSchema, type ServerMessage } from "@warfront/protocol";
 import { RealClock } from "@warfront/simulation";
 import { LobbyStore, type Player } from "./lobby-store.js";
 import { MatchHost } from "./match-host.js";
@@ -202,7 +202,7 @@ app.get("/ws", { websocket: true }, (socket, request) => {
           peer.close(1008);
           return;
         }
-        const command = moveUnitCommandSchema.parse(
+        const command = clientCommandSchema.parse(
           JSON.parse(String(raw)) as unknown,
         );
         await host.command(player.id, command);

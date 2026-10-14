@@ -2,7 +2,7 @@
 
 This checklist tracks the milestones in the [original project brief](../README.md#the-game-we-are-building). A checked box means the work is implemented and verified; an unchecked box is still to do. Update this file in the same pull request as the work it records.
 
-**Current stage:** Milestone 2 two-player movement prototype is running locally. Combat and economy are still to do.
+**Current stage:** Milestone 3 two-player combat prototype is running locally. Economy is still to do.
 
 ## Milestone 0 — architecture and scaffolding
 
@@ -35,9 +35,9 @@ This checklist tracks the milestones in the [original project brief](../README.m
 
 ## Milestone 3 — combat
 
-- [ ] Add scout, medium assault and artillery roles with health, weapons and damage.
-- [ ] Resolve combat on the server and render the results in the client.
-- [ ] Persist destroyed units and test combat recovery after restart.
+- [x] Add scout, medium assault and artillery roles with health, weapons and damage.
+- [x] Resolve combat on the server and render the results in the client.
+- [x] Persist destroyed units and test combat recovery after restart.
 
 ## Milestone 4 — economy
 

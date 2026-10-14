@@ -13,6 +13,7 @@
     "@fastify/websocket": "^11.2.0",
     "@warfront/protocol": "workspace:*",
     "@warfront/simulation": "workspace:*",
+    "@warfront/shared": "workspace:*",
     "fastify": "^5.6.0",
     "pg": "^8.16.0"
   },

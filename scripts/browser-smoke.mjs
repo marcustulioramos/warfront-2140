@@ -1,4 +1,4 @@
-/* global setTimeout, console, document, fetch */
+/* global setTimeout, console, document, fetch, WebSocket, location */
 import { randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
@@ -59,13 +59,13 @@ try {
   await until(() =>
     framesA.some(
       (message) =>
-        message.type === "SNAPSHOT" && message.state.units.length === 2,
+        message.type === "SNAPSHOT" && message.state.units.length === 6,
     ),
   );
   await until(() =>
     framesB.some(
       (message) =>
-        message.type === "SNAPSHOT" && message.state.units.length === 2,
+        message.type === "SNAPSHOT" && message.state.units.length === 6,
     ),
   );
   await pageA.waitForFunction(
@@ -81,12 +81,58 @@ try {
   );
   assert.notEqual(a.id, b.id);
 
+  await pageA.locator("#unit-roster button").first().click();
+  assert.match(await pageA.locator("#selection").textContent(), /selected/);
+  const matchId = framesA.find(
+    (message) => message.type === "WELCOME",
+  )?.matchId;
+  assert.ok(matchId);
+  await pageA.evaluate(
+    async ({ matchId, attackerId, targetId, commandId }) => {
+      const connection = new WebSocket(
+        `ws://${location.host}/ws?matchId=${matchId}`,
+      );
+      await new Promise((resolve, reject) => {
+        connection.addEventListener("error", reject);
+        connection.addEventListener("message", (event) => {
+          const message = JSON.parse(event.data);
+          if (message.type === "ACK" && message.commandId === commandId)
+            resolve(undefined);
+          if (message.type === "ERROR") reject(new Error(message.message));
+        });
+        connection.addEventListener("open", () =>
+          connection.send(
+            JSON.stringify({
+              protocolVersion: 1,
+              commandId,
+              type: "ATTACK_UNIT",
+              unitId: attackerId,
+              targetId,
+            }),
+          ),
+        );
+      });
+      connection.close();
+    },
+    {
+      matchId,
+      attackerId: `artillery-${a.id}`,
+      targetId: `unit-${b.id}`,
+      commandId: randomUUID(),
+    },
+  );
+  await pageA.waitForFunction(
+    () => document.querySelector("#combat-log")?.textContent?.includes("hit"),
+    null,
+    { timeout: 15000 },
+  );
+
   await pageB.reload();
   await pageB.locator("#matches-panel").waitFor({ state: "visible" });
   await pageB.locator(".match-row button").first().click();
   await pageB.locator("#active-match").waitFor({ state: "visible" });
   console.log(
-    "Two isolated browser profiles saw the shared match and rejoined after refresh",
+    "Two browser profiles saw combat and rejoined the shared match after refresh",
   );
 } finally {
   await browser.close();

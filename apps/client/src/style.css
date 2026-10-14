@@ -62,7 +62,7 @@ canvas {
   border-radius: 0.7rem;
   background: #0b202be8;
   box-shadow: 0 10px 30px #0008;
-  pointer-events: none;
+  pointer-events: auto;
 }
 .hud h2 {
   margin: 0 0 0.75rem;
@@ -76,6 +76,28 @@ canvas {
 }
 .hud .note {
   color: #94b3b7;
+}
+#unit-roster {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.65rem;
+}
+#unit-roster button {
+  padding: 0.38rem 0.5rem;
+  text-align: left;
+  cursor: pointer;
+  color: #d9eeec;
+  background: #173540;
+  border: 1px solid #426673;
+  border-radius: 0.3rem;
+}
+#unit-roster button.unit-active {
+  border-color: #77dfd5;
+  background: #1d4b58;
+}
+#combat-log {
+  color: #ffc67a;
+  min-height: 1.2rem;
 }
 .divider {
   height: 1px;

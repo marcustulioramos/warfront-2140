@@ -6,14 +6,17 @@ import WebSocket from "ws";
 
 const port = 3101;
 const base = `http://127.0.0.1:${port}`;
-const server = spawn(process.execPath, ["apps/server/dist/index.js"], {
-  env: {
-    ...process.env,
-    DATABASE_URL: process.env.DATABASE_URL_TEST,
-    SERVER_PORT: String(port),
-  },
-  stdio: "ignore",
-});
+function startServer() {
+  return spawn(process.execPath, ["apps/server/dist/index.js"], {
+    env: {
+      ...process.env,
+      DATABASE_URL: process.env.DATABASE_URL_TEST,
+      SERVER_PORT: String(port),
+    },
+    stdio: "ignore",
+  });
+}
+let server = startServer();
 
 async function waitForServer() {
   for (let attempt = 0; attempt < 100; attempt++) {
@@ -60,7 +63,7 @@ async function connect(matchId, cookie) {
 }
 
 async function until(session, predicate) {
-  for (let attempt = 0; attempt < 100; attempt++) {
+  for (let attempt = 0; attempt < 300; attempt++) {
     const found = session.received.find(predicate);
     if (found) return found;
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -108,12 +111,12 @@ try {
   await until(
     a,
     (message) =>
-      message.type === "SNAPSHOT" && message.state.units.length === 2,
+      message.type === "SNAPSHOT" && message.state.units.length === 6,
   );
   await until(
     b,
     (message) =>
-      message.type === "SNAPSHOT" && message.state.units.length === 2,
+      message.type === "SNAPSHOT" && message.state.units.length === 6,
   );
 
   const forbiddenId = randomUUID();
@@ -159,13 +162,68 @@ try {
   await until(
     b,
     (message) =>
-      message.type === "SNAPSHOT" && message.state.units.length === 2,
+      message.type === "SNAPSHOT" && message.state.units.length === 6,
+  );
+  const attackId = randomUUID();
+  a.socket.send(
+    JSON.stringify({
+      protocolVersion: 1,
+      commandId: attackId,
+      type: "ATTACK_UNIT",
+      unitId: `artillery-${alice.data.id}`,
+      targetId: `unit-${bob.data.id}`,
+    }),
+  );
+  await until(
+    a,
+    (message) => message.type === "ACK" && message.commandId === attackId,
+  );
+  await until(
+    a,
+    (message) =>
+      message.type === "SNAPSHOT" &&
+      message.state.combatEvents.some(
+        (event) => event.attackerId === `artillery-${alice.data.id}`,
+      ),
+  );
+  await until(
+    a,
+    (message) =>
+      message.type === "SNAPSHOT" &&
+      message.state.combatEvents.some(
+        (event) => event.targetId === `unit-${bob.data.id}` && event.destroyed,
+      ),
+  );
+  b.socket.close();
+  b = await connect(match.data.id, bob.cookie);
+  const afterDeath = await until(
+    b,
+    (message) =>
+      message.type === "SNAPSHOT" && message.state.units.length === 5,
+  );
+  assert.equal(
+    afterDeath.state.units.some((unit) => unit.id === `unit-${bob.data.id}`),
+    false,
   );
   a.socket.close();
   b.socket.close();
-  console.log(
-    "Two-player auth, faction colours, ownership, shared state and reconnect passed",
+  const stopped = new Promise((resolve) => server.once("exit", resolve));
+  server.kill("SIGKILL");
+  await stopped;
+  server = startServer();
+  await waitForServer();
+  const afterRestart = await connect(match.data.id, bob.cookie);
+  const recovered = await until(
+    afterRestart,
+    (message) =>
+      message.type === "SNAPSHOT" && message.state.units.length === 5,
   );
+  assert.equal(
+    recovered.state.units.some((unit) => unit.id === `unit-${bob.data.id}`),
+    false,
+  );
+  afterRestart.socket.close();
+  console.log("Two-player auth, combat, destruction and crash recovery passed");
 } finally {
   server.kill("SIGTERM");
 }

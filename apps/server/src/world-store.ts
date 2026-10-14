@@ -1,6 +1,11 @@
 import { readFile } from "node:fs/promises";
 import pg from "pg";
-import { worldSnapshotSchema } from "@warfront/protocol";
+import {
+  legacyWorldSnapshotSchema,
+  snapshotVersion,
+  worldSnapshotSchema,
+} from "@warfront/protocol";
+import { UNIT_STATS, WORLD_HALF_SIZE, type UnitView } from "@warfront/shared";
 import type { WorldSnapshot } from "@warfront/simulation";
 
 const migrations = ["0001_world_snapshots", "0002_multiplayer"];
@@ -52,7 +57,49 @@ export class WorldStore {
       [matchId],
     );
     const row = result.rows[0];
-    return row ? worldSnapshotSchema.parse(row.snapshot) : undefined;
+    if (!row) return undefined;
+    const current = worldSnapshotSchema.safeParse(row.snapshot);
+    if (current.success) return current.data;
+    const legacy = legacyWorldSnapshotSchema.parse(row.snapshot);
+    const playerIds = [...new Set(legacy.units.map((unit) => unit.ownerId))];
+    const units: UnitView[] = legacy.units.flatMap((unit) => {
+      const scout: UnitView = {
+        ...unit,
+        role: "scout",
+        targetId: null,
+        health: UNIT_STATS.scout.maxHealth,
+        maxHealth: UNIT_STATS.scout.maxHealth,
+        cooldownMs: 0,
+      };
+      const extra = (["medium", "artillery"] as const).map(
+        (role, index): UnitView => ({
+          ...scout,
+          id: `${role}-${unit.ownerId}`,
+          role,
+          position: {
+            x: unit.position.x,
+            z: Math.max(
+              -WORLD_HALF_SIZE,
+              Math.min(
+                WORLD_HALF_SIZE,
+                unit.position.z + (index === 0 ? -4 : 4),
+              ),
+            ),
+          },
+          destination: null,
+          health: UNIT_STATS[role].maxHealth,
+          maxHealth: UNIT_STATS[role].maxHealth,
+        }),
+      );
+      return [scout, ...extra];
+    });
+    return {
+      ...legacy,
+      snapshotVersion,
+      playerIds,
+      units,
+      combatEvents: [],
+    };
   }
 
   async save(snapshot: WorldSnapshot): Promise<void> {
