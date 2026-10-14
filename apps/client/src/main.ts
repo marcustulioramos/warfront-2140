@@ -21,6 +21,7 @@ import {
 import {
   ECONOMY,
   RECOVERY,
+  SECTOR_SIZE,
   UNIT_STATS,
   WORLD_HALF_SIZE,
   type Point,
@@ -67,6 +68,7 @@ const accountLabel = element<HTMLElement>("#account-label");
 const matchLabel = element<HTMLElement>("#match-label");
 const playerList = element<HTMLElement>("#player-list");
 const recoveryStatus = element<HTMLElement>("#recovery-status");
+const territoryStatus = element<HTMLElement>("#territory-status");
 
 interface Player {
   id: string;
@@ -329,6 +331,32 @@ const ground = MeshBuilder.CreateGround(
 const terrainMaterial = new StandardMaterial("terrain-material", scene);
 terrainMaterial.diffuseColor = new Color3(0.14, 0.27, 0.23);
 ground.material = terrainMaterial;
+const sectorMaterials = new Map<string, StandardMaterial>();
+for (let row = 0; row < 4; row++) {
+  for (let column = 0; column < 4; column++) {
+    const id = `${column}-${row}`;
+    const tile = MeshBuilder.CreateGround(
+      `sector-${id}`,
+      {
+        width: SECTOR_SIZE - 0.2,
+        height: SECTOR_SIZE - 0.2,
+      },
+      scene,
+    );
+    tile.position.set(
+      -WORLD_HALF_SIZE + (column + 0.5) * SECTOR_SIZE,
+      0.035,
+      -WORLD_HALF_SIZE + (row + 0.5) * SECTOR_SIZE,
+    );
+    tile.isPickable = false;
+    const material = new StandardMaterial(`sector-material-${id}`, scene);
+    material.diffuseColor = Color3.Black();
+    material.emissiveColor = Color3.Black();
+    material.alpha = 0.45;
+    tile.material = material;
+    sectorMaterials.set(id, material);
+  }
+}
 
 const road = MeshBuilder.CreateGround(
   "road",
@@ -510,6 +538,22 @@ function setSelection(id: string | undefined): void {
 function showState(state: WorldView & { lastSimulatedAtMs: number }): void {
   const previous = currentState;
   currentState = state;
+  for (const sector of state.sectors) {
+    const material = sectorMaterials.get(sector.id);
+    if (!material) continue;
+    material.emissiveColor =
+      sector.visible === false
+        ? new Color3(0.005, 0.01, 0.015)
+        : sector.ownerId === myPlayerId
+          ? new Color3(0.04, 0.18, 0.32)
+          : sector.ownerId
+            ? new Color3(0.32, 0.09, 0.04)
+            : sector.objective
+              ? new Color3(0.26, 0.22, 0.05)
+              : new Color3(0.025, 0.06, 0.04);
+    material.alpha = sector.visible === false ? 0.87 : 0.32;
+  }
+  territoryStatus.textContent = `${state.sectors.filter((sector) => sector.ownerId === myPlayerId).length}/16 sectors · ${state.sectors.filter((sector) => sector.ownerId === myPlayerId && sector.objective).length}/4 objectives`;
   const serverNow = state.lastSimulatedAtMs;
   const recovery = state.recovery.find((item) => item.playerId === myPlayerId);
   const recoveryPending = !!recovery?.respawnAtMs;
@@ -625,9 +669,8 @@ function showState(state: WorldView & { lastSimulatedAtMs: number }): void {
   }
   if (
     activeMatch &&
-    state.units.some(
-      (unit) =>
-        !activeMatch?.players.some((player) => player.id === unit.ownerId),
+    state.playerIds.some(
+      (id) => !activeMatch?.players.some((player) => player.id === id),
     )
   ) {
     const currentId = activeMatch.id;

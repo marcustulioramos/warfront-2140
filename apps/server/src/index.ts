@@ -6,6 +6,8 @@ import { RealClock } from "@warfront/simulation";
 import { LobbyStore, type Player } from "./lobby-store.js";
 import { MatchHost } from "./match-host.js";
 import { WorldStore } from "./world-store.js";
+import { visibleSnapshot } from "./visibility.js";
+import type { WorldSnapshot } from "@warfront/simulation";
 
 const app = Fastify({ logger: true, bodyLimit: 16_384 });
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
@@ -20,13 +22,14 @@ type Socket = {
   close(code?: number): void;
   on(event: "message" | "close", listener: (...args: unknown[]) => void): void;
 };
-const clients = new Map<string, Set<Socket>>();
+const clients = new Map<string, Map<Socket, string>>();
 
 function send(socket: Socket, message: ServerMessage): void {
   if (socket.readyState === 1) socket.send(JSON.stringify(message));
 }
-function broadcast(matchId: string, message: ServerMessage): void {
-  for (const socket of clients.get(matchId) ?? []) send(socket, message);
+function broadcast(matchId: string, state: WorldSnapshot): void {
+  for (const [socket, playerId] of clients.get(matchId) ?? [])
+    send(socket, { type: "SNAPSHOT", state: visibleSnapshot(state, playerId) });
 }
 function hostFor(matchId: string): Promise<MatchHost> {
   if (deletingMatches.has(matchId))
@@ -37,7 +40,7 @@ function hostFor(matchId: string): Promise<MatchHost> {
       new RealClock(),
       worldStore,
       matchId,
-      (state) => broadcast(matchId, { type: "SNAPSHOT", state }),
+      (state) => broadcast(matchId, state),
       (error) => app.log.error(error),
     ).then((host) => {
       host.start();
@@ -217,7 +220,7 @@ app.delete<{ Params: { id: string } }>(
         hosts.delete(id);
       }
       await lobby.deleteMatch(id, player.id);
-      for (const socket of clients.get(id) ?? []) socket.close(1008);
+      for (const socket of clients.get(id)?.keys() ?? []) socket.close(1008);
       clients.delete(id);
       return { ok: true };
     } catch (error) {
@@ -254,6 +257,15 @@ app.get("/ws", { websocket: true }, (socket, request) => {
         const command = clientCommandSchema.parse(
           JSON.parse(String(raw)) as unknown,
         );
+        if (command.type === "ATTACK_UNIT") {
+          const visible = visibleSnapshot(host.snapshot(), player.id);
+          if (
+            ![...visible.units, ...visible.buildings].some(
+              (item) => item.id === command.targetId,
+            )
+          )
+            throw new Error("Target is outside vision");
+        }
         await host.command(player.id, command);
         send(peer, { type: "ACK", commandId: command.commandId });
       } catch (error) {
@@ -279,12 +291,15 @@ app.get("/ws", { websocket: true }, (socket, request) => {
     }
     matchId = match.id;
     host = await hostFor(match.id);
-    const group = clients.get(match.id) ?? new Set<Socket>();
-    group.add(peer);
+    const group = clients.get(match.id) ?? new Map<Socket, string>();
+    group.set(peer, player.id);
     clients.set(match.id, group);
     ready = true;
     send(peer, { type: "WELCOME", playerId: player.id, matchId: match.id });
-    send(peer, { type: "SNAPSHOT", state: host.snapshot() });
+    send(peer, {
+      type: "SNAPSHOT",
+      state: visibleSnapshot(host.snapshot(), player.id),
+    });
   })().catch((error) => {
     app.log.error(error);
     peer.close(1011);

@@ -23,6 +23,8 @@ Open **Offline armies** at the bottom of the Economy panel to select unassigned 
 
 Enemy buildings can be attacked and destroyed. When a player has no units, production, or viable economy, the server schedules recovery after 30 seconds and selects the safest of eight map sites using distance from enemies and recent recovery sites. The player receives one scout, one ready extractor, and 20 ore at the new location; lost armies, buildings, and map position are not restored. Account, faction, colour, match membership, and saved research remain. The recovery zone protects its structures and units for 60 seconds. Protection ends on expiry or immediately when the player orders an attack; units outside the zone are vulnerable. The active match bar shows the recovery countdown or remaining protection time.
 
+The battlefield is divided into 16 sectors, including four central objectives. A sole player's units in a sector capture it; ownership remains until another player takes control. Strategic armies travel along adjacent sector routes. The server sends each player only the units, structures and reports they can see, plus their own economy and armies. Dark sectors are outside vision; the match bar shows owned territory and objectives. Run `pnpm benchmark:sectors` to measure 100,000 routes. The current battlefield is still 40×40; expanding it is planned after movement, rendering and server load are measured.
+
 ## Development checks
 
 With Node.js 24 and pnpm 10: `pnpm install`, then `pnpm format:check`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm build`.

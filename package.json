@@ -11,7 +11,8 @@
     "format:check": "prettier --check .",
     "format": "prettier --write .",
     "test": "vitest run",
-    "test:browser": "node scripts/browser-smoke.mjs"
+    "test:browser": "node scripts/browser-smoke.mjs",
+    "benchmark:sectors": "pnpm build:packages && node scripts/sector-benchmark.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.0",

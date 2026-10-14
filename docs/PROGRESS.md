@@ -2,7 +2,7 @@
 
 This checklist tracks the milestones in the [original project brief](../README.md#the-game-we-are-building). A checked box means the work is implemented and verified; an unchecked box is still to do. Update this file in the same pull request as the work it records.
 
-**Current stage:** Milestone 7 destruction and recovery are running locally. Large map sectors are next.
+**Current stage:** Milestone 8 sector map, territory, routes and player-specific visibility are running locally. Faction definitions are next.
 
 ## Milestone 0 — architecture and scaffolding
 
@@ -68,9 +68,10 @@ This checklist tracks the milestones in the [original project brief](../README.m
 
 ## Milestone 8 — large map architecture
 
-- [ ] Add sectors, territory ownership and strategic objectives.
-- [ ] Add sector level routes, local movement and basic pathfinding benchmarks.
-- [ ] Add server controlled fog of war and network interest management.
+- [x] Add a 4×4 sector map, territory ownership and four strategic objectives.
+- [x] Route strategic army travel across adjacent sectors; keep local unit movement within the battlefield.
+- [x] Add server controlled fog of war and per-player network views for units, structures, armies and private resources.
+- [x] Benchmark sector routing with 100,000 repeatable route calculations.
 
 ## Milestone 9 — faction system
 
@@ -92,6 +93,7 @@ This checklist tracks the milestones in the [original project brief](../README.m
 
 ## Cross-cutting work
 
+- [ ] Expand the playable world beyond the current 40×40 battlefield after measuring movement, rendering and server load.
 - [ ] Choose and add an open source licence.
 - [x] Add schema migrations and durable match data in PostgreSQL.
 - [x] Let match creators delete their matches and hide automated test fixtures in the lobby.

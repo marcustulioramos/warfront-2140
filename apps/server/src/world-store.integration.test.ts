@@ -9,6 +9,42 @@ const databaseUrl = process.env.DATABASE_URL_TEST;
 const describeWithDatabase = databaseUrl ? describe : describe.skip;
 
 describeWithDatabase("PostgreSQL world recovery", () => {
+  it("upgrades recovery-era snapshots with neutral sectors", async () => {
+    if (!databaseUrl) throw new Error("DATABASE_URL_TEST is required");
+    const pool = new pg.Pool({ connectionString: databaseUrl });
+    const store = new WorldStore(pool);
+    const matchId = `sector-upgrade-${randomUUID()}`;
+    try {
+      await store.migrate();
+      const snapshot = new Simulation(
+        new ManualClock(0),
+        undefined,
+        matchId,
+      ).snapshot();
+      await pool.query(
+        "INSERT INTO world_snapshots (match_id, snapshot) VALUES ($1, $2::jsonb)",
+        [
+          matchId,
+          JSON.stringify({
+            ...snapshot,
+            snapshotVersion: 5,
+            sectors: undefined,
+          }),
+        ],
+      );
+      const loaded = await store.load(matchId);
+      expect(loaded?.snapshotVersion).toBe(6);
+      expect(loaded?.sectors).toHaveLength(16);
+      expect(loaded?.sectors.filter((sector) => sector.objective)).toHaveLength(
+        4,
+      );
+    } finally {
+      await pool.query("DELETE FROM world_snapshots WHERE match_id = $1", [
+        matchId,
+      ]);
+      await pool.end();
+    }
+  });
   it("restores a move without advancing through downtime", async () => {
     if (!databaseUrl) throw new Error("DATABASE_URL_TEST is required");
     const pool = new pg.Pool({ connectionString: databaseUrl });
@@ -125,7 +161,7 @@ describeWithDatabase("PostgreSQL world recovery", () => {
         ],
       );
       const loaded = await store.load(matchId);
-      expect(loaded?.snapshotVersion).toBe(5);
+      expect(loaded?.snapshotVersion).toBe(6);
       expect(loaded?.playerIds).toEqual(["old"]);
       expect(loaded?.units.map((unit) => unit.role)).toEqual([
         "scout",
@@ -229,7 +265,7 @@ describeWithDatabase("PostgreSQL world recovery", () => {
         ],
       );
       const loaded = await store.load(matchId);
-      expect(loaded?.snapshotVersion).toBe(5);
+      expect(loaded?.snapshotVersion).toBe(6);
       expect(loaded?.resources).toEqual([{ playerId: "veteran", ore: 100 }]);
       expect(loaded?.resourceNodes[0]?.id).toBe("node-veteran");
       expect(loaded?.units).toHaveLength(3);
@@ -262,7 +298,7 @@ describeWithDatabase("PostgreSQL world recovery", () => {
         [matchId, JSON.stringify({ ...oldSnapshot, snapshotVersion: 3 })],
       );
       const upgraded = await store.load(matchId);
-      expect(upgraded?.snapshotVersion).toBe(5);
+      expect(upgraded?.snapshotVersion).toBe(6);
       expect(upgraded?.armies).toEqual([]);
       const simulation = new Simulation(clock, upgraded);
       const armyId = randomUUID();
@@ -357,7 +393,7 @@ describeWithDatabase("PostgreSQL world recovery", () => {
         [matchId, JSON.stringify(old)],
       );
       const loaded = await store.load(matchId);
-      expect(loaded?.snapshotVersion).toBe(5);
+      expect(loaded?.snapshotVersion).toBe(6);
       expect(loaded?.buildings[0]?.health).toBe(120);
       expect(loaded?.recovery).toEqual([]);
       expect(loaded?.research).toEqual([{ playerId: "a", completed: [] }]);

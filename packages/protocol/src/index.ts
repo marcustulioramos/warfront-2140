@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { WorldView } from "@warfront/shared";
 
 export const protocolVersion = 1;
-export const snapshotVersion = 5;
+export const snapshotVersion = 6;
 
 const pointSchema = z.object({
   x: z.number().finite(),
@@ -162,8 +162,8 @@ export const armyWorldSnapshotSchema = economyWorldSnapshotSchema.extend({
     }),
   ),
 });
-export const worldSnapshotSchema = armyWorldSnapshotSchema.extend({
-  snapshotVersion: z.literal(snapshotVersion),
+export const recoveryWorldSnapshotSchema = armyWorldSnapshotSchema.extend({
+  snapshotVersion: z.literal(5),
   buildings: z.array(
     z.object({
       id: z.string(),
@@ -202,6 +202,19 @@ export const worldSnapshotSchema = armyWorldSnapshotSchema.extend({
     z.object({ playerId: z.string(), completed: z.array(z.string()) }),
   ),
 });
+export const worldSnapshotSchema = recoveryWorldSnapshotSchema.extend({
+  snapshotVersion: z.literal(snapshotVersion),
+  sectors: z.array(
+    z.object({
+      id: z.string(),
+      column: z.number().int().min(0).max(3),
+      row: z.number().int().min(0).max(3),
+      ownerId: z.string().nullable(),
+      objective: z.boolean(),
+      visible: z.boolean().optional(),
+    }),
+  ),
+});
 
 export const serverMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("SNAPSHOT"), state: worldSnapshotSchema }),
@@ -225,7 +238,7 @@ export type ServerMessage =
   | {
       readonly type: "SNAPSHOT";
       readonly state: WorldView & {
-        readonly snapshotVersion: 5;
+        readonly snapshotVersion: 6;
         readonly lastSimulatedAtMs: number;
       };
     }

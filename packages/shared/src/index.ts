@@ -3,6 +3,61 @@ export type PlayerId = string;
 export type UnitId = string;
 
 export const WORLD_HALF_SIZE = 20;
+export const SECTOR_COLUMNS = 4;
+export const SECTOR_SIZE = (WORLD_HALF_SIZE * 2) / SECTOR_COLUMNS;
+
+export interface SectorView {
+  readonly id: string;
+  readonly column: number;
+  readonly row: number;
+  readonly ownerId: PlayerId | null;
+  readonly objective: boolean;
+  readonly visible?: boolean | undefined;
+}
+
+export function sectorAt(point: Point): string {
+  const index = (coordinate: number) =>
+    Math.max(
+      0,
+      Math.min(
+        SECTOR_COLUMNS - 1,
+        Math.floor((coordinate + WORLD_HALF_SIZE) / SECTOR_SIZE),
+      ),
+    );
+  return `${index(point.x)}-${index(point.z)}`;
+}
+
+export function sectorDistance(a: string, b: string): number {
+  const [ax, az] = a.split("-").map(Number);
+  const [bx, bz] = b.split("-").map(Number);
+  return Math.abs(ax! - bx!) + Math.abs(az! - bz!);
+}
+
+export function sectorRoute(from: Point, to: Point): readonly string[] {
+  const route = [sectorAt(from)];
+  const [tx, tz] = sectorAt(to).split("-").map(Number);
+  let [x, z] = route[0]!.split("-").map(Number);
+  while (x !== tx || z !== tz) {
+    if (x !== tx) x! += Math.sign(tx! - x!);
+    else z! += Math.sign(tz! - z!);
+    route.push(`${x}-${z}`);
+  }
+  return route;
+}
+
+export function startingSectors(): SectorView[] {
+  return Array.from({ length: SECTOR_COLUMNS * SECTOR_COLUMNS }, (_, index) => {
+    const column = index % SECTOR_COLUMNS;
+    const row = Math.floor(index / SECTOR_COLUMNS);
+    return {
+      id: `${column}-${row}`,
+      column,
+      row,
+      ownerId: null,
+      objective: (column === 1 || column === 2) && (row === 1 || row === 2),
+    };
+  });
+}
 
 export const UNIT_STATS = {
   scout: {
@@ -124,6 +179,7 @@ export interface WorldView {
   readonly matchId: MatchId;
   readonly tick: number;
   readonly playerIds: readonly PlayerId[];
+  readonly sectors: readonly SectorView[];
   readonly units: readonly UnitView[];
   readonly combatEvents: readonly CombatEvent[];
   readonly armies: readonly ArmyView[];

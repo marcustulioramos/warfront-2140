@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ManualClock, Simulation } from "./index.js";
+import { sectorRoute, sectorAt } from "@warfront/shared";
 
 const move = {
   protocolVersion: 1 as const,
@@ -10,6 +11,19 @@ const move = {
 };
 
 describe("authoritative simulation", () => {
+  it("routes strategic travel through adjacent sectors and captures uncontested territory", () => {
+    const route = sectorRoute({ x: -15, z: -15 }, { x: 15, z: 15 });
+    expect(route).toEqual(["0-0", "1-0", "2-0", "3-0", "3-1", "3-2", "3-3"]);
+    const game = new Simulation(new ManualClock(), undefined, "sectors");
+    game.addPlayer("a");
+    game.advance();
+    expect(
+      game
+        .snapshot()
+        .sectors.find((sector) => sector.id === sectorAt({ x: -10, z: 0 }))
+        ?.ownerId,
+    ).toBe("a");
+  });
   it("moves a unit using the injected clock and rejects foreign commands", () => {
     const clock = new ManualClock();
     const simulation = new Simulation(clock);

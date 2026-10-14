@@ -86,13 +86,13 @@ try {
   await until(() =>
     framesA.some(
       (message) =>
-        message.type === "SNAPSHOT" && message.state.units.length === 6,
+        message.type === "SNAPSHOT" && message.state.units.length === 3,
     ),
   );
   await until(() =>
     framesB.some(
       (message) =>
-        message.type === "SNAPSHOT" && message.state.units.length === 6,
+        message.type === "SNAPSHOT" && message.state.units.length === 3,
     ),
   );
   await pageA.waitForFunction(
@@ -100,7 +100,7 @@ try {
       document.querySelector("#player-list")?.textContent?.includes(name),
     bobName,
   );
-  console.log("Browser smoke: shared battle visible");
+  console.log("Browser smoke: each player sees only their own distant army");
   const a = await pageA.evaluate(() =>
     fetch("/api/me").then((response) => response.json()),
   );
@@ -140,51 +140,75 @@ try {
     (message) => message.type === "WELCOME",
   )?.matchId;
   assert.ok(matchId);
-  await pageA.evaluate(
-    async ({ matchId, attackerId, targetId, commandId }) => {
-      const connection = new WebSocket(
-        `ws://${location.host}/ws?matchId=${matchId}`,
-      );
-      try {
-        await new Promise((resolve, reject) => {
-          const timer = setTimeout(
-            () => reject(new Error("Attack acknowledgement timed out")),
-            10000,
-          );
-          connection.addEventListener("error", reject);
-          connection.addEventListener("message", (event) => {
-            const message = JSON.parse(event.data);
-            if (message.type === "WELCOME")
-              connection.send(
-                JSON.stringify({
-                  protocolVersion: 1,
-                  commandId,
-                  type: "ATTACK_UNIT",
-                  unitId: attackerId,
-                  targetId,
-                }),
-              );
-            if (message.type === "ACK" && message.commandId === commandId) {
-              clearTimeout(timer);
-              resolve(undefined);
-            }
-            if (message.type === "ERROR") {
-              clearTimeout(timer);
-              reject(new Error(message.message));
-            }
+  async function sendCommand(command) {
+    await pageA.evaluate(
+      async ({ matchId, command }) => {
+        const connection = new WebSocket(
+          `ws://${location.host}/ws?matchId=${matchId}`,
+        );
+        try {
+          await new Promise((resolve, reject) => {
+            const timer = setTimeout(
+              () => reject(new Error("Attack acknowledgement timed out")),
+              10000,
+            );
+            connection.addEventListener("error", reject);
+            connection.addEventListener("message", (event) => {
+              const message = JSON.parse(event.data);
+              if (message.type === "WELCOME")
+                connection.send(
+                  JSON.stringify({
+                    protocolVersion: 1,
+                    ...command,
+                  }),
+                );
+              if (
+                message.type === "ACK" &&
+                message.commandId === command.commandId
+              ) {
+                clearTimeout(timer);
+                resolve(undefined);
+              }
+              if (message.type === "ERROR") {
+                clearTimeout(timer);
+                reject(new Error(message.message));
+              }
+            });
           });
-        });
-      } finally {
-        connection.close();
-      }
-    },
-    {
-      matchId,
-      attackerId: `artillery-${a.id}`,
-      targetId: `unit-${b.id}`,
-      commandId: randomUUID(),
-    },
+        } finally {
+          connection.close();
+        }
+      },
+      { matchId, command },
+    );
+  }
+  await sendCommand({
+    commandId: randomUUID(),
+    type: "MOVE_UNIT",
+    unitId: `artillery-${a.id}`,
+    destination: { x: 0, z: 0 },
+  });
+  await until(() =>
+    framesA.some(
+      (message) =>
+        message.type === "SNAPSHOT" &&
+        message.state.units.find((unit) => unit.id === `artillery-${a.id}`)
+          ?.position.x >= 0,
+    ),
   );
+  await until(() =>
+    framesA.some(
+      (message) =>
+        message.type === "SNAPSHOT" &&
+        message.state.units.some((unit) => unit.id === `unit-${b.id}`),
+    ),
+  );
+  await sendCommand({
+    commandId: randomUUID(),
+    type: "ATTACK_UNIT",
+    unitId: `artillery-${a.id}`,
+    targetId: `unit-${b.id}`,
+  });
   await pageA.waitForFunction(
     () => document.querySelector("#combat-log")?.textContent?.includes("hit"),
     null,

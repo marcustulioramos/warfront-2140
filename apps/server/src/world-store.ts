@@ -6,6 +6,7 @@ import {
   combatWorldSnapshotSchema,
   economyWorldSnapshotSchema,
   armyWorldSnapshotSchema,
+  recoveryWorldSnapshotSchema,
   snapshotVersion,
   worldSnapshotSchema,
 } from "@warfront/protocol";
@@ -13,6 +14,7 @@ import {
   RECOVERY,
   UNIT_STATS,
   WORLD_HALF_SIZE,
+  startingSectors,
   type UnitView,
 } from "@warfront/shared";
 import { startingEconomy, type WorldSnapshot } from "@warfront/simulation";
@@ -25,23 +27,31 @@ const migrations = [
   "0005_recovery_events",
 ];
 
+function upgradeRecoverySnapshot(
+  snapshot: ReturnType<typeof recoveryWorldSnapshotSchema.parse>,
+): WorldSnapshot {
+  return { ...snapshot, snapshotVersion, sectors: startingSectors() };
+}
+
 function upgradeArmySnapshot(
   snapshot: ReturnType<typeof armyWorldSnapshotSchema.parse>,
 ): WorldSnapshot {
-  return {
-    ...snapshot,
-    snapshotVersion,
-    buildings: snapshot.buildings.map((building) => ({
-      ...building,
-      health: RECOVERY.buildingHealth[building.kind],
-      maxHealth: RECOVERY.buildingHealth[building.kind],
-    })),
-    recovery: [],
-    research: snapshot.playerIds.map((playerId) => ({
-      playerId,
-      completed: [],
-    })),
-  };
+  return upgradeRecoverySnapshot(
+    recoveryWorldSnapshotSchema.parse({
+      ...snapshot,
+      snapshotVersion: 5,
+      buildings: snapshot.buildings.map((building) => ({
+        ...building,
+        health: RECOVERY.buildingHealth[building.kind],
+        maxHealth: RECOVERY.buildingHealth[building.kind],
+      })),
+      recovery: [],
+      research: snapshot.playerIds.map((playerId) => ({
+        playerId,
+        completed: [],
+      })),
+    }),
+  );
 }
 
 export class WorldStore {
@@ -94,6 +104,8 @@ export class WorldStore {
     if (!row) return undefined;
     const current = worldSnapshotSchema.safeParse(row.snapshot);
     if (current.success) return current.data;
+    const recovery = recoveryWorldSnapshotSchema.safeParse(row.snapshot);
+    if (recovery.success) return upgradeRecoverySnapshot(recovery.data);
     const army = armyWorldSnapshotSchema.safeParse(row.snapshot);
     if (army.success) return upgradeArmySnapshot(army.data);
     const economy = economyWorldSnapshotSchema.safeParse(row.snapshot);

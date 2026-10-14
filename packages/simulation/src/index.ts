@@ -3,8 +3,12 @@ import { snapshotVersion } from "@warfront/protocol";
 import {
   ECONOMY,
   RECOVERY,
+  SECTOR_SIZE,
   UNIT_STATS,
   WORLD_HALF_SIZE,
+  sectorAt,
+  sectorRoute,
+  startingSectors,
   type CombatEvent,
   type ArmyView,
   type BattleReport,
@@ -96,6 +100,7 @@ export class Simulation {
           tick: 0,
           lastSimulatedAtMs: clock.nowMs(),
           playerIds: matchId ? [] : ["player-1"],
+          sectors: startingSectors(),
           units: matchId
             ? []
             : [makeUnit("unit-1", "player-1", "scout", { x: 0, z: 0 })],
@@ -367,6 +372,7 @@ export class Simulation {
       ),
       combatEvents,
     };
+    this.updateTerritory();
     this.evaluateDefeats(now);
     return this.snapshot();
   }
@@ -448,9 +454,14 @@ export class Simulation {
     const slowest = Math.min(
       ...members.map((unit) => UNIT_STATS[unit.role].speed),
     );
+    const route = sectorRoute(origin, destination);
     const travelMs = Math.max(
       1000,
-      Math.ceil((distance(origin, destination) / slowest) * 5000),
+      Math.ceil(
+        (((route.length - 1) * SECTOR_SIZE + distance(origin, destination)) /
+          slowest) *
+          2500,
+      ),
     );
     if (stance === "attack")
       this.cancelProtection(playerId, this.clock.nowMs());
@@ -514,6 +525,7 @@ export class Simulation {
           item.id === army.id ? { ...item, arrivesAtMs: null } : item,
         ),
       };
+      this.updateTerritory();
       if (army.stance === "attack") this.resolveArmyBattle(army, arrival);
       else
         this.addReport({
@@ -528,6 +540,22 @@ export class Simulation {
         });
       this.evaluateDefeats(arrival);
     }
+  }
+
+  private updateTerritory(): void {
+    this.world = {
+      ...this.world,
+      sectors: this.world.sectors.map((sector) => {
+        const occupants = new Set(
+          this.world.units
+            .filter((unit) => sectorAt(unit.position) === sector.id)
+            .map((unit) => unit.ownerId),
+        );
+        return occupants.size === 1
+          ? { ...sector, ownerId: [...occupants][0]! }
+          : sector;
+      }),
+    };
   }
 
   private resolveArmyBattle(army: ArmyView, atMs: number): void {
