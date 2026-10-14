@@ -3,6 +3,28 @@ import { ManualClock, Simulation } from "@warfront/simulation";
 import { visibleSnapshot } from "./visibility.js";
 
 describe("player visibility", () => {
+  it("shows a killing shot even after its target leaves the world", () => {
+    const game = new Simulation(new ManualClock(0), undefined, "combat-fog");
+    game.addPlayer("a");
+    const state = game.snapshot();
+    const view = visibleSnapshot(
+      {
+        ...state,
+        combatEvents: [
+          {
+            attackerId: "unit-a",
+            targetId: "destroyed-b",
+            from: { x: -10, z: 0 },
+            to: { x: -5, z: 0 },
+            damage: 7,
+            destroyed: true,
+          },
+        ],
+      },
+      "a",
+    );
+    expect(view.combatEvents).toHaveLength(1);
+  });
   it("hides remote enemies, private economy, armies, and reports", () => {
     const game = new Simulation(new ManualClock(0), undefined, "fog-test");
     game.addPlayer("a");

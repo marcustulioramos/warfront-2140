@@ -56,7 +56,7 @@ export function visibleSnapshot(
     buildings,
     resourceNodes: state.resourceNodes.filter((node) => visible(node.position)),
     combatEvents: state.combatEvents.filter(
-      (event) => knownIds.has(event.attackerId) && knownIds.has(event.targetId),
+      (event) => visible(event.from) && visible(event.to),
     ),
     armies: state.armies.filter((army) => army.ownerId === playerId),
     battleReports: state.battleReports.filter(

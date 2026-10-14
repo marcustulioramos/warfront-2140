@@ -17,6 +17,8 @@ function startServer() {
   });
 }
 let server = startServer();
+let fixtureId;
+let fixtureCookie;
 
 async function waitForServer() {
   for (let attempt = 0; attempt < 100; attempt++) {
@@ -69,7 +71,19 @@ async function until(session, predicate) {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   throw new Error(
-    `Timed out waiting for WebSocket message: ${JSON.stringify(session.received)}`,
+    `Timed out waiting for WebSocket message. Latest snapshot: ${JSON.stringify(
+      session.received
+        .filter((message) => message.type === "SNAPSHOT")
+        .at(-1)
+        ?.state.units.map((unit) => ({
+          id: unit.id,
+          x: unit.position.x,
+          targetId: unit.targetId,
+        })),
+    )}; message types: ${session.received
+      .slice(-10)
+      .map((message) => message.type)
+      .join(",")}`,
   );
 }
 
@@ -94,6 +108,8 @@ try {
     alice.cookie,
   );
   assert.equal(match.status, 201);
+  fixtureId = match.data.id;
+  fixtureCookie = alice.cookie;
   const joined = await request(
     `/matches/${match.data.id}/join`,
     "POST",
@@ -111,12 +127,12 @@ try {
   await until(
     a,
     (message) =>
-      message.type === "SNAPSHOT" && message.state.units.length === 6,
+      message.type === "SNAPSHOT" && message.state.units.length === 3,
   );
   await until(
     b,
     (message) =>
-      message.type === "SNAPSHOT" && message.state.units.length === 6,
+      message.type === "SNAPSHOT" && message.state.units.length === 3,
   );
 
   const forbiddenId = randomUUID();
@@ -162,7 +178,8 @@ try {
   await until(
     b,
     (message) =>
-      message.type === "SNAPSHOT" && message.state.units.length === 6,
+      message.type === "SNAPSHOT" &&
+      message.state.units.some((unit) => unit.ownerId === bob.data.id),
   );
   const attackId = randomUUID();
   a.socket.send(
@@ -199,7 +216,8 @@ try {
   const afterDeath = await until(
     b,
     (message) =>
-      message.type === "SNAPSHOT" && message.state.units.length === 5,
+      message.type === "SNAPSHOT" &&
+      message.state.units.some((unit) => unit.id === `medium-${bob.data.id}`),
   );
   assert.equal(
     afterDeath.state.units.some((unit) => unit.id === `unit-${bob.data.id}`),
@@ -257,23 +275,29 @@ try {
   const recovered = await until(
     afterRestart,
     (message) =>
-      message.type === "SNAPSHOT" && message.state.units.length === 5,
+      message.type === "SNAPSHOT" &&
+      message.state.units.some((unit) => unit.id === `medium-${bob.data.id}`),
   );
   assert.equal(
     recovered.state.units.some((unit) => unit.id === `unit-${bob.data.id}`),
     false,
   );
-  const extractor = recovered.state.buildings.find(
+  const afterRestartA = await connect(match.data.id, alice.cookie);
+  const recoveredA = await until(
+    afterRestartA,
+    (message) => message.type === "SNAPSHOT",
+  );
+  const extractor = recoveredA.state.buildings.find(
     (building) => building.id === `extractor-${alice.data.id}`,
   );
   assert.ok(extractor);
   assert.ok(extractor.readyAtMs <= Date.now());
   assert.ok(
-    recovered.state.resources.find(
+    recoveredA.state.resources.find(
       (balance) => balance.playerId === alice.data.id,
     )?.ore >= 60,
   );
-  const marching = recovered.state.units.find(
+  const marching = recoveredA.state.units.find(
     (unit) => unit.id === `medium-${alice.data.id}`,
   );
   assert.equal(marching?.destination?.x, 15);
@@ -300,9 +324,21 @@ try {
     false,
   );
   afterRestart.socket.close();
+  afterRestartA.socket.close();
   console.log(
     "Combat and construction survived restart; only the creator deleted the match",
   );
 } finally {
+  if (fixtureId && fixtureCookie)
+    try {
+      await request(
+        `/matches/${fixtureId}`,
+        "DELETE",
+        undefined,
+        fixtureCookie,
+      );
+    } catch {
+      /* The server may already be down after a crash test failure. */
+    }
   server.kill("SIGTERM");
 }
