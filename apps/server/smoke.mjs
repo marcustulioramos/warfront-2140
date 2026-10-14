@@ -36,7 +36,7 @@ async function request(path, method = "GET", body, cookie) {
   const response = await fetch(`${base}/api${path}`, {
     method,
     headers: {
-      "content-type": "application/json",
+      ...(body === undefined ? {} : { "content-type": "application/json" }),
       "x-warfront-request": "1",
       ...(cookie ? { cookie } : {}),
     },
@@ -281,9 +281,27 @@ try {
     marching.position.x < 0,
     "movement must pause during server downtime",
   );
+  const forbiddenDelete = await request(
+    `/matches/${match.data.id}`,
+    "DELETE",
+    undefined,
+    bob.cookie,
+  );
+  assert.equal(forbiddenDelete.status, 403);
+  const deleted = await request(
+    `/matches/${match.data.id}`,
+    "DELETE",
+    undefined,
+    alice.cookie,
+  );
+  assert.equal(deleted.status, 200);
+  assert.equal(
+    (await request("/matches")).data.some((item) => item.id === match.data.id),
+    false,
+  );
   afterRestart.socket.close();
   console.log(
-    "Combat, construction and movement survived a forced server restart",
+    "Combat and construction survived restart; only the creator deleted the match",
   );
 } finally {
   server.kill("SIGTERM");

@@ -13,6 +13,7 @@ const worldStore = new WorldStore(pool);
 await worldStore.migrate();
 const lobby = new LobbyStore(pool);
 const hosts = new Map<string, Promise<MatchHost>>();
+const deletingMatches = new Set<string>();
 type Socket = {
   send(data: string): void;
   readonly readyState: number;
@@ -28,6 +29,8 @@ function broadcast(matchId: string, message: ServerMessage): void {
   for (const socket of clients.get(matchId) ?? []) send(socket, message);
 }
 function hostFor(matchId: string): Promise<MatchHost> {
+  if (deletingMatches.has(matchId))
+    return Promise.reject(new Error("Match is being deleted"));
   let pending = hosts.get(matchId);
   if (!pending) {
     pending = MatchHost.create(
@@ -182,6 +185,46 @@ app.post<{ Params: { id: string } }>(
       return reply.code(400).send({
         error: error instanceof Error ? error.message : "Could not join match",
       });
+    }
+  },
+);
+
+app.delete<{ Params: { id: string } }>(
+  "/api/matches/:id",
+  async (request, reply) => {
+    const player = await playerFor(request.headers.cookie);
+    if (!player) return reply.code(401).send({ error: "Sign in required" });
+    const id = request.params.id;
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        id,
+      )
+    )
+      return reply.code(400).send({ error: "Invalid match ID" });
+    const match = await lobby.getMatch(id);
+    if (!match) return reply.code(404).send({ error: "Match not found" });
+    if (match.creatorId !== player.id)
+      return reply
+        .code(403)
+        .send({ error: "Only the match creator can delete it" });
+    if (deletingMatches.has(id))
+      return reply.code(409).send({ error: "Match is already being deleted" });
+    deletingMatches.add(id);
+    try {
+      const pending = hosts.get(id);
+      if (pending) {
+        await (await pending).close();
+        hosts.delete(id);
+      }
+      await lobby.deleteMatch(id, player.id);
+      for (const socket of clients.get(id) ?? []) socket.close(1008);
+      clients.delete(id);
+      return { ok: true };
+    } catch (error) {
+      app.log.error(error);
+      return reply.code(500).send({ error: "Could not delete match" });
+    } finally {
+      deletingMatches.delete(id);
     }
   },
 );

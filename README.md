@@ -17,6 +17,8 @@ Left-click one of your blue units, or select it from the unit list. Right-click 
 
 The Economy panel shows ore and construction progress. Each player starts with 100 ore and one resource node. Build an extractor for 40 ore (10 seconds), then a factory for 60 ore (15 seconds). A finished extractor earns 2 ore per second. The factory produces a scout for 20 ore in 8 seconds, medium assault for 40 ore in 12 seconds, or artillery for 60 ore in 18 seconds. One factory runs one job at a time. Server timestamps keep construction, mining and production progressing while players are disconnected.
 
+In the lobby, the match creator can select **Delete** to permanently remove a match and its saved progress for both players. The lobby hides automated test matches by default; uncheck **Hide automated test matches** to show them. Tests delete the matches they create after a successful run.
+
 ## Development checks
 
 With Node.js 24 and pnpm 10: `pnpm install`, then `pnpm format:check`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm build`.

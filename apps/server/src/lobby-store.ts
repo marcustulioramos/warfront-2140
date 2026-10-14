@@ -24,6 +24,7 @@ export interface MatchPlayer extends Player {
 export interface MatchSummary {
   id: string;
   name: string;
+  creatorId: string | null;
   players: MatchPlayer[];
 }
 
@@ -120,10 +121,10 @@ export class LobbyStore {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
-      await client.query("INSERT INTO matches (id, name) VALUES ($1, $2)", [
-        id,
-        name,
-      ]);
+      await client.query(
+        "INSERT INTO matches (id, name, creator_id) VALUES ($1, $2, $3)",
+        [id, name, creator.id],
+      );
       await client.query(
         "INSERT INTO match_players (match_id, player_id, faction, colour) VALUES ($1, $2, $3, $4)",
         [id, creator.id, faction, "blue"],
@@ -135,7 +136,12 @@ export class LobbyStore {
     } finally {
       client.release();
     }
-    return { id, name, players: [{ ...creator, faction, colour: "blue" }] };
+    return {
+      id,
+      name,
+      creatorId: creator.id,
+      players: [{ ...creator, faction, colour: "blue" }],
+    };
   }
 
   async joinMatch(
@@ -175,8 +181,12 @@ export class LobbyStore {
   }
 
   async getMatch(id: string): Promise<MatchSummary | undefined> {
-    const result = await this.pool.query<{ id: string; name: string }>(
-      "SELECT id, name FROM matches WHERE id = $1",
+    const result = await this.pool.query<{
+      id: string;
+      name: string;
+      creatorId: string | null;
+    }>(
+      'SELECT id, name, creator_id AS "creatorId" FROM matches WHERE id = $1',
       [id],
     );
     const row = result.rows[0];
@@ -197,5 +207,37 @@ export class LobbyStore {
     return (
       await Promise.all(result.rows.map((row) => this.getMatch(row.id)))
     ).filter((match): match is MatchSummary => match !== undefined);
+  }
+
+  async deleteMatch(id: string, creatorId: string): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await client.query<{ creator_id: string | null }>(
+        "SELECT creator_id FROM matches WHERE id = $1 FOR UPDATE",
+        [id],
+      );
+      const match = result.rows[0];
+      if (!match) throw new Error("Match not found");
+      if (match.creator_id !== creatorId)
+        throw new Error("Only the match creator can delete it");
+      await client.query("DELETE FROM match_commands WHERE match_id = $1", [
+        id,
+      ]);
+      await client.query(
+        "DELETE FROM match_scheduled_events WHERE match_id = $1",
+        [id],
+      );
+      await client.query("DELETE FROM world_snapshots WHERE match_id = $1", [
+        id,
+      ]);
+      await client.query("DELETE FROM matches WHERE id = $1", [id]);
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 }

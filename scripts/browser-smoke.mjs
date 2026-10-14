@@ -7,6 +7,7 @@ const browser = await chromium.launch({ channel: "chrome", headless: true });
 const suffix = randomUUID().replaceAll("-", "").slice(0, 10);
 const aliceName = `a${suffix}`;
 const bobName = `b${suffix}`;
+const matchName = `Browser test ${suffix}`;
 const framesA = [];
 const framesB = [];
 
@@ -16,6 +17,7 @@ async function register(page, username) {
   await page.locator("#password").fill("long-test-password");
   await page.locator("#register").click();
   await page.locator("#matches-panel").waitFor({ state: "visible" });
+  await page.locator("#hide-test-matches").uncheck();
 }
 
 async function until(predicate) {
@@ -47,13 +49,18 @@ try {
   collect(pageB, framesB);
 
   await register(pageA, aliceName);
-  await pageA.locator("#match-name").fill(`Browser test ${suffix}`);
+  await pageA.locator("#match-name").fill(matchName);
   await pageA.locator("#create-form button").click();
   await pageA.locator("#active-match").waitFor({ state: "visible" });
 
   await register(pageB, bobName);
   await pageB.locator("#refresh-matches").click();
-  await pageB.locator(".match-row button").first().click();
+  await pageB
+    .locator(".match-row")
+    .filter({ hasText: matchName })
+    .locator("button")
+    .first()
+    .click();
   await pageB.locator("#active-match").waitFor({ state: "visible" });
   console.log("Browser smoke: both players joined");
 
@@ -168,11 +175,23 @@ try {
 
   await pageB.reload();
   await pageB.locator("#matches-panel").waitFor({ state: "visible" });
-  await pageB.locator(".match-row button").first().click();
+  await pageB.locator("#hide-test-matches").uncheck();
+  await pageB
+    .locator(".match-row")
+    .filter({ hasText: matchName })
+    .locator("button")
+    .first()
+    .click();
   await pageB.locator("#active-match").waitFor({ state: "visible" });
   await pageA.reload();
   await pageA.locator("#matches-panel").waitFor({ state: "visible" });
-  await pageA.locator(".match-row button").first().click();
+  await pageA.locator("#hide-test-matches").uncheck();
+  await pageA
+    .locator(".match-row")
+    .filter({ hasText: matchName })
+    .locator("button")
+    .first()
+    .click();
   await pageA.locator("#active-match").waitFor({ state: "visible" });
   await pageA.waitForFunction(
     () =>
@@ -183,8 +202,24 @@ try {
       document.querySelector("#build-factory")?.hasAttribute("disabled"),
   );
   console.log("Browser smoke: economy restored after refresh");
+  await pageA.locator("#leave-match").click();
+  await pageA
+    .locator(".match-row")
+    .filter({ hasText: matchName })
+    .waitFor({ state: "visible" });
+  pageA.once("dialog", (dialog) => void dialog.accept());
+  await pageA
+    .locator(".match-row")
+    .filter({ hasText: matchName })
+    .locator(".delete-match")
+    .click();
+  await pageA
+    .locator(".match-row")
+    .filter({ hasText: matchName })
+    .waitFor({ state: "detached" });
+  await pageB.locator("#matches-panel").waitFor({ state: "visible" });
   console.log(
-    "Two browser profiles saw economy and combat, then rejoined after refresh",
+    "Two browser profiles saw economy and combat, rejoined, and the creator deleted the match",
   );
 } finally {
   await browser.close();

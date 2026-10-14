@@ -14,6 +14,7 @@ const migrations = [
   "0001_world_snapshots",
   "0002_multiplayer",
   "0003_durable_events",
+  "0004_match_ownership",
 ];
 
 export class WorldStore {

@@ -212,6 +212,27 @@ canvas {
   padding: 0.65rem 0;
   border-top: 1px solid #32505b;
 }
+.match-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+.match-row .delete-match {
+  background: #754346;
+  color: #fff;
+}
+.match-row .delete-match:hover {
+  background: #9a5357;
+}
+.test-filter {
+  display: flex !important;
+  align-items: center;
+  gap: 0.5rem;
+}
+.test-filter input {
+  width: auto;
+  margin: 0;
+}
 .active-match {
   position: absolute;
   top: 1rem;

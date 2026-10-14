@@ -94,5 +94,6 @@ This checklist tracks the milestones in the [original project brief](../README.m
 
 - [ ] Choose and add an open source licence.
 - [x] Add schema migrations and durable match data in PostgreSQL.
+- [x] Let match creators delete their matches and hide automated test fixtures in the lobby.
 - [ ] Harden authentication, rate limiting and visibility before public game hosting.
 - [ ] Add deployment guidance for an Ubuntu host with HTTPS and backups.

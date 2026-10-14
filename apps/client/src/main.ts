@@ -54,6 +54,7 @@ const authForm = element<HTMLFormElement>("#auth-form");
 const matchesPanel = element<HTMLElement>("#matches-panel");
 const activeMatchPanel = element<HTMLElement>("#active-match");
 const matchList = element<HTMLElement>("#match-list");
+const hideTestMatches = element<HTMLInputElement>("#hide-test-matches");
 const accountLabel = element<HTMLElement>("#account-label");
 const matchLabel = element<HTMLElement>("#match-label");
 const playerList = element<HTMLElement>("#player-list");
@@ -65,6 +66,7 @@ interface Player {
 interface Match {
   id: string;
   name: string;
+  creatorId: string | null;
   players: (Player & { faction: string; colour: string })[];
 }
 let me: Player | undefined;
@@ -79,7 +81,10 @@ async function api<T>(
   const response = await fetch(`/api${path}`, {
     method,
     credentials: "same-origin",
-    headers: { "Content-Type": "application/json", "X-Warfront-Request": "1" },
+    headers: {
+      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+      "X-Warfront-Request": "1",
+    },
     body: body === undefined ? null : JSON.stringify(body),
   });
   const data = (await response.json()) as T & { error?: string };
@@ -97,8 +102,11 @@ function showError(error: unknown): void {
 
 async function refreshLobby(): Promise<void> {
   const matches = await api<Match[]>("/matches");
+  const visible = hideTestMatches.checked
+    ? matches.filter((match) => !isAutomatedMatch(match))
+    : matches;
   matchList.replaceChildren();
-  for (const match of matches) {
+  for (const match of visible) {
     const row = document.createElement("div");
     row.className = "match-row";
     const details = document.createElement("span");
@@ -122,12 +130,55 @@ async function refreshLobby(): Promise<void> {
         }
       })();
     });
-    row.append(details, button);
+    const actions = document.createElement("div");
+    actions.className = "match-actions";
+    actions.append(button);
+    if (match.creatorId === me?.id) {
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "delete-match";
+      remove.textContent = "Delete";
+      remove.title = "Permanently delete this match for both players";
+      remove.addEventListener("click", () => {
+        if (
+          !window.confirm(
+            `Delete “${match.name}” and all its progress for both players?`,
+          )
+        )
+          return;
+        void api(`/matches/${match.id}`, "DELETE")
+          .then(() => refreshLobby())
+          .catch(showError);
+      });
+      actions.append(remove);
+    }
+    row.append(details, actions);
     matchList.append(row);
   }
-  if (matches.length === 0)
-    matchList.textContent = "No matches yet. Create one above.";
+  if (visible.length === 0)
+    matchList.textContent =
+      matches.length === 0
+        ? "No matches yet. Create one above."
+        : "Only automated test matches are hidden. Uncheck the filter to show them.";
 }
+
+function isAutomatedMatch(match: Match): boolean {
+  const browser = /^Browser test ([0-9a-f]{10})$/.exec(match.name);
+  const names = new Set(match.players.map((player) => player.username));
+  if (browser)
+    return names.has(`a${browser[1]}`) && names.has(`b${browser[1]}`);
+  if (match.name !== "Two player smoke test" || match.players.length !== 2)
+    return false;
+  const alice = match.players.find((player) =>
+    /^a[0-9a-f]{10}$/.test(player.username),
+  );
+  return !!alice && names.has(`b${alice.username.slice(1)}`);
+}
+
+hideTestMatches.addEventListener(
+  "change",
+  () => void refreshLobby().catch(showError),
+);
 
 function showLobby(): void {
   socket?.close();
@@ -766,8 +817,13 @@ function connect(): void {
   connection.onopen = () => {
     status.textContent = "Connected to the authoritative server.";
   };
-  connection.onclose = () => {
+  connection.onclose = (event) => {
     if (socket !== connection) return;
+    if (event.code === 1008) {
+      status.textContent = "Match closed or access ended.";
+      showLobby();
+      return;
+    }
     status.textContent = "Connection lost. Reconnecting…";
     if (activeMatch?.id === connectingMatchId) window.setTimeout(connect, 2000);
   };

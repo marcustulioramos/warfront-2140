@@ -11,6 +11,7 @@ export class MatchHost {
   private queue: Promise<void> = Promise.resolve();
   private timer: NodeJS.Timeout | undefined;
   private tickPending = false;
+  private closed = false;
 
   private constructor(
     private readonly clock: Clock,
@@ -53,6 +54,7 @@ export class MatchHost {
   }
 
   start(): void {
+    if (this.closed) throw new Error("Match is closed");
     this.timer = setInterval(() => {
       if (this.tickPending) return;
       this.tickPending = true;
@@ -75,6 +77,7 @@ export class MatchHost {
   }
 
   command(playerId: string, command: ClientCommand): Promise<WorldSnapshot> {
+    if (this.closed) return Promise.reject(new Error("Match is closed"));
     return this.enqueue(async () => {
       if (await this.store.isDuplicate(this.matchId, playerId, command))
         return this.simulation.snapshot();
@@ -98,6 +101,7 @@ export class MatchHost {
   }
 
   addPlayer(playerId: string): Promise<WorldSnapshot> {
+    if (this.closed) return Promise.reject(new Error("Match is closed"));
     return this.enqueue(async () => {
       const before = this.simulation.snapshot();
       const state = this.simulation.addPlayer(playerId);
@@ -113,6 +117,8 @@ export class MatchHost {
   }
 
   async close(): Promise<void> {
+    if (this.closed) return;
+    this.closed = true;
     if (this.timer) clearInterval(this.timer);
     await this.queue;
     await this.store.save(this.simulation.snapshot());
