@@ -32,6 +32,17 @@ export const UNIT_STATS = {
 } as const;
 
 export type UnitRole = keyof typeof UNIT_STATS;
+export type BuildingKind = "extractor" | "factory";
+export const ECONOMY = {
+  startingOre: 100,
+  extractorCost: 40,
+  factoryCost: 60,
+  extractorBuildMs: 10_000,
+  factoryBuildMs: 15_000,
+  orePerSecond: 2,
+  unitCost: { scout: 20, medium: 40, artillery: 60 },
+  unitBuildMs: { scout: 8_000, medium: 12_000, artillery: 18_000 },
+} as const;
 
 export interface Point {
   readonly x: number;
@@ -65,4 +76,21 @@ export interface WorldView {
   readonly playerIds: readonly PlayerId[];
   readonly units: readonly UnitView[];
   readonly combatEvents: readonly CombatEvent[];
+  readonly resourceNodes: readonly { id: string; position: Point }[];
+  readonly buildings: readonly {
+    id: string;
+    ownerId: PlayerId;
+    kind: BuildingKind;
+    position: Point;
+    nodeId: string | null;
+    readyAtMs: number;
+  }[];
+  readonly production: readonly {
+    id: string;
+    ownerId: PlayerId;
+    role: UnitRole;
+    factoryId: string;
+    readyAtMs: number;
+  }[];
+  readonly resources: readonly { playerId: PlayerId; ore: number }[];
 }

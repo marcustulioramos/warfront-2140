@@ -1,6 +1,6 @@
 # Warfront 2140
 
-Warfront 2140 is an open source, browser based persistent RTS in early development. This repository now contains a two-player combat prototype with accounts and a match lobby. Economy and long-running offline strategy are still planned work.
+Warfront 2140 is an open source, browser based persistent RTS in early development. This repository now contains a two-player combat and economy prototype with accounts and a match lobby. Long-running offline strategy is still planned work.
 
 ## Local start
 
@@ -9,11 +9,13 @@ Warfront 2140 is an open source, browser based persistent RTS in early developme
 3. Run `docker compose up --build`.
 4. Open http://localhost:5173. The server health endpoint is http://localhost:3000/health.
 
-The health endpoint returns 503 if PostgreSQL is unavailable. Create an account, create a match, then have a second player create an account and join that match. Both players may choose the same faction; their units have different team colours. Each player commands a scout, a medium assault unit and artillery. The server calculates movement, range, reload time, damage and death. Match state is saved in PostgreSQL and can be resumed after a refresh or server restart. Full command/event recovery remains a later milestone.
+The health endpoint returns 503 if PostgreSQL is unavailable. Create an account, create a match, then have a second player create an account and join that match. Both players may choose the same faction; their units have different team colours. Each player commands a scout, a medium assault unit and artillery. The server calculates movement, combat, construction, mining and unit production. Match state is saved in PostgreSQL and can be resumed after a refresh or server restart. Full command/event recovery remains a later milestone.
 
 ## Controls
 
 Left-click one of your blue units, or select it from the unit list. Right-click terrain to move and right-click an orange enemy unit to attack. Health bars and brief shot effects show server-approved combat. Drag to rotate the camera, scroll to zoom, and use W A S D or arrow keys to pan. Refreshing the page returns you to the lobby; choose Rejoin to restore the match.
+
+The Economy panel shows ore and construction progress. Each player starts with 100 ore and one resource node. Build an extractor for 40 ore (10 seconds), then a factory for 60 ore (15 seconds). A finished extractor earns 2 ore per second. The factory produces a scout for 20 ore in 8 seconds, medium assault for 40 ore in 12 seconds, or artillery for 60 ore in 18 seconds. One factory runs one job at a time. Server timestamps keep construction, mining and production progressing while players are disconnected.
 
 ## Development checks
 

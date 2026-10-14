@@ -12,9 +12,12 @@ import {
   protocolVersion,
   serverMessageSchema,
   type AttackUnitCommand,
+  type BuildStructureCommand,
   type MoveUnitCommand,
+  type ProduceUnitCommand,
 } from "@warfront/protocol";
 import {
+  ECONOMY,
   UNIT_STATS,
   WORLD_HALF_SIZE,
   type Point,
@@ -36,6 +39,15 @@ const order = element<HTMLElement>("#order");
 const coordinates = element<HTMLElement>("#coordinates");
 const unitRoster = element<HTMLElement>("#unit-roster");
 const combatLog = element<HTMLElement>("#combat-log");
+const oreBalance = element<HTMLElement>("#ore-balance");
+const economyProgress = element<HTMLElement>("#economy-progress");
+const buildExtractor = element<HTMLButtonElement>("#build-extractor");
+const buildFactory = element<HTMLButtonElement>("#build-factory");
+const produceButtons = {
+  scout: element<HTMLButtonElement>("#produce-scout"),
+  medium: element<HTMLButtonElement>("#produce-medium"),
+  artillery: element<HTMLButtonElement>("#produce-artillery"),
+};
 const lobbyPanel = element<HTMLElement>("#lobby");
 const lobbyMessage = element<HTMLElement>("#lobby-message");
 const authForm = element<HTMLFormElement>("#auth-form");
@@ -313,6 +325,7 @@ for (const [x, z] of [
 }
 
 const units = new Map<string, ReturnType<typeof MeshBuilder.CreateBox>>();
+const structures = new Map<string, ReturnType<typeof MeshBuilder.CreateBox>>();
 const healthBars = new Map<string, ReturnType<typeof MeshBuilder.CreateBox>>();
 const targetPositions = new Map<string, Vector3>();
 const unitButtons = new Map<string, HTMLButtonElement>();
@@ -408,9 +421,90 @@ function setSelection(id: string | undefined): void {
     : "Select one of your blue units.";
 }
 
-function showState(state: WorldView): void {
+function showState(state: WorldView & { lastSimulatedAtMs: number }): void {
   const previous = currentState;
   currentState = state;
+  const serverNow = state.lastSimulatedAtMs;
+  const balance =
+    state.resources.find((item) => item.playerId === myPlayerId)?.ore ?? 0;
+  oreBalance.textContent = `Ore: ${Math.floor(balance)} · +${ECONOMY.orePerSecond}/sec per extractor`;
+  const extractor = state.buildings.find(
+    (item) => item.ownerId === myPlayerId && item.kind === "extractor",
+  );
+  const factory = state.buildings.find(
+    (item) => item.ownerId === myPlayerId && item.kind === "factory",
+  );
+  buildExtractor.disabled =
+    !myPlayerId || !!extractor || balance < ECONOMY.extractorCost;
+  buildFactory.disabled =
+    !myPlayerId || !!factory || balance < ECONOMY.factoryCost;
+  const factoryReady = !!factory && factory.readyAtMs <= serverNow;
+  const job = state.production.find((item) => item.ownerId === myPlayerId);
+  for (const role of ["scout", "medium", "artillery"] as const) {
+    produceButtons[role].disabled =
+      !factoryReady || !!job || balance < ECONOMY.unitCost[role];
+  }
+  const tasks = [
+    ...(extractor && extractor.readyAtMs > serverNow
+      ? [`Extractor: ${Math.ceil((extractor.readyAtMs - serverNow) / 1000)}s`]
+      : []),
+    ...(factory && factory.readyAtMs > serverNow
+      ? [`Factory: ${Math.ceil((factory.readyAtMs - serverNow) / 1000)}s`]
+      : []),
+    ...(job
+      ? [
+          `${roleName(job.role)}: ${Math.ceil((job.readyAtMs - serverNow) / 1000)}s`,
+        ]
+      : []),
+  ];
+  economyProgress.textContent = tasks.length
+    ? tasks.join(" · ")
+    : "Build an extractor, then a factory to produce units.";
+  const visibleStructures = new Set([
+    ...state.resourceNodes.map((node) => `node-mesh-${node.id}`),
+    ...state.buildings.map((building) => building.id),
+  ]);
+  for (const [id, mesh] of structures) {
+    if (visibleStructures.has(id)) continue;
+    mesh.dispose();
+    structures.delete(id);
+  }
+  for (const node of state.resourceNodes) {
+    const id = `node-mesh-${node.id}`;
+    if (!structures.has(id)) {
+      const mesh = MeshBuilder.CreateSphere(id, { diameter: 1.7 }, scene);
+      mesh.position.set(node.position.x, 0.5, node.position.z);
+      mesh.isPickable = false;
+      const material = new StandardMaterial(id, scene);
+      material.emissiveColor = new Color3(0.2, 0.75, 0.9);
+      mesh.material = material;
+      structures.set(id, mesh);
+    }
+  }
+  for (const building of state.buildings) {
+    if (!structures.has(building.id)) {
+      const mesh = MeshBuilder.CreateBox(
+        building.id,
+        { width: 3, depth: 3, height: building.kind === "factory" ? 2.2 : 1.5 },
+        scene,
+      );
+      mesh.position.set(
+        building.position.x,
+        building.kind === "factory" ? 1.1 : 0.75,
+        building.position.z,
+      );
+      mesh.isPickable = false;
+      const material = new StandardMaterial(`building-${building.id}`, scene);
+      material.diffuseColor =
+        building.ownerId === myPlayerId
+          ? new Color3(0.15, 0.55, 0.85)
+          : new Color3(0.8, 0.35, 0.2);
+      mesh.material = material;
+      structures.set(building.id, mesh);
+    }
+    structures.get(building.id)!.scaling.y =
+      building.readyAtMs > serverNow ? 0.4 : 1;
+  }
   if (
     activeMatch &&
     state.units.some(
@@ -586,6 +680,46 @@ function sendAttack(targetId: string): void {
   };
   socket.send(JSON.stringify(command));
   status.textContent = "Attack order sent. Waiting for server confirmation…";
+}
+
+function sendEconomy(
+  command: BuildStructureCommand | ProduceUnitCommand,
+): void {
+  if (!socket || socket.readyState !== WebSocket.OPEN) return;
+  socket.send(JSON.stringify(command));
+  status.textContent = "Economy order sent. Waiting for server confirmation…";
+}
+for (const [button, kind] of [
+  [buildExtractor, "extractor"],
+  [buildFactory, "factory"],
+] as const) {
+  button.addEventListener("click", () => {
+    const command: BuildStructureCommand = {
+      protocolVersion,
+      commandId: commandId(),
+      type: "BUILD_STRUCTURE",
+      kind,
+      nodeId:
+        kind === "extractor"
+          ? (currentState?.resourceNodes.find(
+              (node) => node.id === `node-${myPlayerId}`,
+            )?.id ?? null)
+          : null,
+    };
+    sendEconomy(command);
+  });
+}
+for (const role of ["scout", "medium", "artillery"] as const) {
+  produceButtons[role].addEventListener("click", () => {
+    const command: ProduceUnitCommand = {
+      protocolVersion,
+      commandId: commandId(),
+      type: "PRODUCE_UNIT",
+      role,
+      factoryId: `factory-${myPlayerId}`,
+    };
+    sendEconomy(command);
+  });
 }
 
 canvas.addEventListener("contextmenu", (event) => event.preventDefault());

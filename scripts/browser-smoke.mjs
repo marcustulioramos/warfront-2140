@@ -1,4 +1,4 @@
-/* global setTimeout, console, document, fetch, WebSocket, location */
+/* global setTimeout, clearTimeout, console, document, fetch, WebSocket, location */
 import { randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
@@ -55,6 +55,7 @@ try {
   await pageB.locator("#refresh-matches").click();
   await pageB.locator(".match-row button").first().click();
   await pageB.locator("#active-match").waitFor({ state: "visible" });
+  console.log("Browser smoke: both players joined");
 
   await until(() =>
     framesA.some(
@@ -73,6 +74,7 @@ try {
       document.querySelector("#player-list")?.textContent?.includes(name),
     bobName,
   );
+  console.log("Browser smoke: shared battle visible");
   const a = await pageA.evaluate(() =>
     fetch("/api/me").then((response) => response.json()),
   );
@@ -80,6 +82,31 @@ try {
     fetch("/api/me").then((response) => response.json()),
   );
   assert.notEqual(a.id, b.id);
+
+  await pageA.locator("#build-extractor").click();
+  await until(() =>
+    framesA.some(
+      (message) =>
+        message.type === "SNAPSHOT" &&
+        message.state.buildings.some(
+          (building) => building.id === `extractor-${a.id}`,
+        ),
+    ),
+  );
+  await pageA.locator("#build-factory").click();
+  await until(() =>
+    framesA.some(
+      (message) =>
+        message.type === "SNAPSHOT" &&
+        message.state.buildings.some(
+          (building) => building.id === `factory-${a.id}`,
+        ),
+    ),
+  );
+  await pageA.waitForFunction(() =>
+    document.querySelector("#ore-balance")?.textContent?.includes("Ore: 0"),
+  );
+  console.log("Browser smoke: economy orders accepted");
 
   await pageA.locator("#unit-roster button").first().click();
   assert.match(await pageA.locator("#selection").textContent(), /selected/);
@@ -92,27 +119,38 @@ try {
       const connection = new WebSocket(
         `ws://${location.host}/ws?matchId=${matchId}`,
       );
-      await new Promise((resolve, reject) => {
-        connection.addEventListener("error", reject);
-        connection.addEventListener("message", (event) => {
-          const message = JSON.parse(event.data);
-          if (message.type === "ACK" && message.commandId === commandId)
-            resolve(undefined);
-          if (message.type === "ERROR") reject(new Error(message.message));
+      try {
+        await new Promise((resolve, reject) => {
+          const timer = setTimeout(
+            () => reject(new Error("Attack acknowledgement timed out")),
+            10000,
+          );
+          connection.addEventListener("error", reject);
+          connection.addEventListener("message", (event) => {
+            const message = JSON.parse(event.data);
+            if (message.type === "WELCOME")
+              connection.send(
+                JSON.stringify({
+                  protocolVersion: 1,
+                  commandId,
+                  type: "ATTACK_UNIT",
+                  unitId: attackerId,
+                  targetId,
+                }),
+              );
+            if (message.type === "ACK" && message.commandId === commandId) {
+              clearTimeout(timer);
+              resolve(undefined);
+            }
+            if (message.type === "ERROR") {
+              clearTimeout(timer);
+              reject(new Error(message.message));
+            }
+          });
         });
-        connection.addEventListener("open", () =>
-          connection.send(
-            JSON.stringify({
-              protocolVersion: 1,
-              commandId,
-              type: "ATTACK_UNIT",
-              unitId: attackerId,
-              targetId,
-            }),
-          ),
-        );
-      });
-      connection.close();
+      } finally {
+        connection.close();
+      }
     },
     {
       matchId,
@@ -126,13 +164,27 @@ try {
     null,
     { timeout: 15000 },
   );
+  console.log("Browser smoke: combat visible");
 
   await pageB.reload();
   await pageB.locator("#matches-panel").waitFor({ state: "visible" });
   await pageB.locator(".match-row button").first().click();
   await pageB.locator("#active-match").waitFor({ state: "visible" });
+  await pageA.reload();
+  await pageA.locator("#matches-panel").waitFor({ state: "visible" });
+  await pageA.locator(".match-row button").first().click();
+  await pageA.locator("#active-match").waitFor({ state: "visible" });
+  await pageA.waitForFunction(
+    () =>
+      /^Ore: \d+/.test(
+        document.querySelector("#ore-balance")?.textContent ?? "",
+      ) &&
+      document.querySelector("#build-extractor")?.hasAttribute("disabled") &&
+      document.querySelector("#build-factory")?.hasAttribute("disabled"),
+  );
+  console.log("Browser smoke: economy restored after refresh");
   console.log(
-    "Two browser profiles saw combat and rejoined the shared match after refresh",
+    "Two browser profiles saw economy and combat, then rejoined after refresh",
   );
 } finally {
   await browser.close();

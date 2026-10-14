@@ -2,11 +2,12 @@ import { readFile } from "node:fs/promises";
 import pg from "pg";
 import {
   legacyWorldSnapshotSchema,
+  combatWorldSnapshotSchema,
   snapshotVersion,
   worldSnapshotSchema,
 } from "@warfront/protocol";
 import { UNIT_STATS, WORLD_HALF_SIZE, type UnitView } from "@warfront/shared";
-import type { WorldSnapshot } from "@warfront/simulation";
+import { startingEconomy, type WorldSnapshot } from "@warfront/simulation";
 
 const migrations = ["0001_world_snapshots", "0002_multiplayer"];
 
@@ -60,6 +61,13 @@ export class WorldStore {
     if (!row) return undefined;
     const current = worldSnapshotSchema.safeParse(row.snapshot);
     if (current.success) return current.data;
+    const combat = combatWorldSnapshotSchema.safeParse(row.snapshot);
+    if (combat.success)
+      return {
+        ...combat.data,
+        snapshotVersion,
+        ...startingEconomy(combat.data.playerIds),
+      };
     const legacy = legacyWorldSnapshotSchema.parse(row.snapshot);
     const playerIds = [...new Set(legacy.units.map((unit) => unit.ownerId))];
     const units: UnitView[] = legacy.units.flatMap((unit) => {
@@ -99,6 +107,7 @@ export class WorldStore {
       playerIds,
       units,
       combatEvents: [],
+      ...startingEconomy(playerIds),
     };
   }
 

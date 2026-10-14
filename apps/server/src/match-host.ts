@@ -31,7 +31,21 @@ export class MatchHost {
     onError: (error: unknown) => void,
   ): Promise<MatchHost> {
     const restored = await store.load(matchId);
-    return new MatchHost(clock, store, matchId, restored, publish, onError);
+    const host = new MatchHost(
+      clock,
+      store,
+      matchId,
+      restored,
+      publish,
+      onError,
+    );
+    if (
+      restored &&
+      JSON.stringify(host.snapshot()) !== JSON.stringify(restored)
+    ) {
+      await store.save(host.snapshot());
+    }
+    return host;
   }
 
   snapshot(): WorldSnapshot {
@@ -45,8 +59,8 @@ export class MatchHost {
       void this.enqueue(async () => {
         const before = this.simulation.snapshot();
         const state = this.simulation.advance();
-        const destroyed = state.units.length < before.units.length;
-        if (destroyed || state.tick % 10 === 0) {
+        const rosterChanged = state.units.length !== before.units.length;
+        if (rosterChanged || state.tick % 10 === 0) {
           try {
             await this.store.save(state);
           } catch (error) {

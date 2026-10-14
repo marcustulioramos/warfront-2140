@@ -195,4 +195,96 @@ describe("authoritative simulation", () => {
         ?.cooldownMs,
     ).toBe(2300);
   });
+
+  it("charges for buildings and production, then completes jobs while disconnected", () => {
+    const clock = new ManualClock(1000);
+    const simulation = new Simulation(clock, undefined, "economy");
+    simulation.addPlayer("a");
+    simulation.addPlayer("b");
+    const id = move.commandId;
+    expect(() =>
+      simulation.command("b", {
+        protocolVersion: 1,
+        commandId: id,
+        type: "BUILD_STRUCTURE",
+        kind: "extractor",
+        nodeId: "node-a",
+      }),
+    ).toThrow("Invalid resource node");
+    simulation.command("a", {
+      protocolVersion: 1,
+      commandId: id,
+      type: "BUILD_STRUCTURE",
+      kind: "extractor",
+      nodeId: "node-a",
+    });
+    simulation.command("a", {
+      protocolVersion: 1,
+      commandId: id,
+      type: "BUILD_STRUCTURE",
+      kind: "factory",
+      nodeId: null,
+    });
+    expect(
+      simulation.snapshot().resources.find((item) => item.playerId === "a")
+        ?.ore,
+    ).toBe(0);
+    expect(() =>
+      simulation.command("a", {
+        protocolVersion: 1,
+        commandId: id,
+        type: "PRODUCE_UNIT",
+        factoryId: "factory-a",
+        role: "scout",
+      }),
+    ).toThrow("not ready");
+    const restored = new Simulation(
+      new ManualClock(21_000),
+      simulation.snapshot(),
+    );
+    expect(
+      restored.snapshot().resources.find((item) => item.playerId === "a")?.ore,
+    ).toBe(20);
+    restored.command("a", {
+      protocolVersion: 1,
+      commandId: id,
+      type: "PRODUCE_UNIT",
+      factoryId: "factory-a",
+      role: "scout",
+    });
+    expect(
+      restored.snapshot().resources.find((item) => item.playerId === "a")?.ore,
+    ).toBe(0);
+    expect(() =>
+      restored.command("a", {
+        protocolVersion: 1,
+        commandId: id,
+        type: "PRODUCE_UNIT",
+        factoryId: "factory-a",
+        role: "scout",
+      }),
+    ).toThrow("already used");
+    expect(() =>
+      restored.command("a", {
+        protocolVersion: 1,
+        commandId: "7fa14880-c8c1-4cd6-8672-189276f0db33",
+        type: "PRODUCE_UNIT",
+        factoryId: "factory-a",
+        role: "scout",
+      }),
+    ).toThrow("busy");
+    const finished = new Simulation(
+      new ManualClock(30_000),
+      restored.snapshot(),
+    );
+    expect(finished.snapshot().production).toHaveLength(0);
+    expect(
+      finished.snapshot().units.some((unit) => unit.id === `produced-${id}`),
+    ).toBe(true);
+    expect(
+      new Simulation(new ManualClock(40_000), finished.snapshot())
+        .snapshot()
+        .units.filter((unit) => unit.id === `produced-${id}`),
+    ).toHaveLength(1);
+  });
 });

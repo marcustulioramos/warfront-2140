@@ -2,7 +2,7 @@
 
 This checklist tracks the milestones in the [original project brief](../README.md#the-game-we-are-building). A checked box means the work is implemented and verified; an unchecked box is still to do. Update this file in the same pull request as the work it records.
 
-**Current stage:** Milestone 3 two-player combat prototype is running locally. Economy is still to do.
+**Current stage:** Milestone 4 two-player combat and economy prototype is running locally. Durable event recovery is next.
 
 ## Milestone 0 — architecture and scaffolding
 
@@ -41,9 +41,9 @@ This checklist tracks the milestones in the [original project brief](../README.m
 
 ## Milestone 4 — economy
 
-- [ ] Add a resource node, resource facility and factory.
-- [ ] Implement building construction and unit production with scheduled completion.
-- [ ] Keep production progressing while a player is disconnected.
+- [x] Add a resource node, resource facility and factory.
+- [x] Implement building construction and unit production with scheduled completion.
+- [x] Keep production progressing while a player is disconnected.
 
 ## Milestone 5 — persistence
 

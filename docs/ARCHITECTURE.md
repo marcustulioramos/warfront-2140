@@ -27,6 +27,10 @@ Each player has a scout, medium assault unit and artillery. Role statistics defi
 
 Snapshot version 2 stores each unit's health, role, target and remaining reload time. It also stores the player roster independently of living units, so reconnecting cannot recreate a destroyed army. Snapshot version 1 is upgraded on load, preserving existing matches and adding the two new roles. A tick that destroys a unit is saved before its new state is broadcast. Clients render health bars, shot lines and a short destruction flash from server combat events. Full event replay and other offline systems remain Milestone 5 work.
 
+## Milestone 4 economy
+
+The simulation owns ore balances, resource nodes, buildings and factory jobs. Client commands specify a building type or production role; the server checks membership, ownership, available ore, construction state and factory capacity. A completed extractor earns ore from server timestamps. Construction and production jobs store absolute completion times in snapshot version 3. On restart, the host settles elapsed economy time and saves the result before sending it to clients. Movement and combat remain paused during server downtime. Version 2 combat snapshots are upgraded on load with starting ore and nodes; version 1 is upgraded through the same economy initialization.
+
 ## Database access
 
 The current snapshot and lobby stores use `pg` and checked-in SQL migrations. Drizzle remains a possible choice as the relational model grows. The simulation package does not depend on database code.

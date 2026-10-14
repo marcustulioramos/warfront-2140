@@ -64,6 +64,41 @@ canvas {
   box-shadow: 0 10px 30px #0008;
   pointer-events: auto;
 }
+.economy {
+  position: absolute;
+  top: 4.8rem;
+  right: 1rem;
+  width: min(250px, calc(100% - 2rem));
+  padding: 0.9rem;
+  border: 1px solid #8a734b;
+  border-radius: 0.6rem;
+  background: #15252bea;
+}
+.economy h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+.economy p {
+  margin: 0.4rem 0;
+  font-size: 0.8rem;
+}
+.economy-actions {
+  display: grid;
+  gap: 0.35rem;
+}
+.economy button {
+  padding: 0.45rem;
+  color: #f7f2df;
+  background: #3a4b45;
+  border: 1px solid #99845d;
+  border-radius: 0.3rem;
+  cursor: pointer;
+  text-align: left;
+}
+.economy button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
 .hud h2 {
   margin: 0 0 0.75rem;
   font-size: 1rem;
@@ -207,5 +242,9 @@ canvas {
   }
   #status {
     max-width: 9rem;
+  }
+  .economy {
+    top: 5.5rem;
+    width: 190px;
   }
 }

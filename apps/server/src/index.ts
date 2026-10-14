@@ -196,7 +196,13 @@ app.get("/ws", { websocket: true }, (socket, request) => {
   let ready = false;
   peer.on("message", (raw) => {
     void (async () => {
-      if (!ready || !player || !host) return;
+      if (!ready || !player || !host) {
+        send(peer, {
+          type: "ERROR",
+          message: "Connection is initializing; retry the order",
+        });
+        return;
+      }
       try {
         if (!(await lobby.playerForToken(token))) {
           peer.close(1008);
