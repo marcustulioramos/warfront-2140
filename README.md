@@ -1,6 +1,6 @@
 # Warfront 2140
 
-Warfront 2140 is an open source, browser based persistent RTS in early development. This repository now contains a two-player combat and economy prototype with accounts, a match lobby, and named armies whose travel and battles continue while players are offline.
+Warfront 2140 is an open source, browser based persistent RTS in early development. This repository now contains a two-player combat and economy prototype with accounts, a match lobby, offline armies, and recovery after a force is destroyed.
 
 ## Local start
 
@@ -19,7 +19,9 @@ The Economy panel shows ore and construction progress. Each player starts with 1
 
 In the lobby, the match creator can select **Delete** to permanently remove a match and its saved progress for both players. The lobby hides automated test matches by default; uncheck **Hide automated test matches** to show them. Tests delete the matches they create after a successful run.
 
-The Offline armies panel lets you select unassigned units, name an army, and send it to map coordinates with an attack or defend order. You can set a retreat threshold and choose whether survivors hold or return after an attack. Travel uses server time and resolves after a disconnect or restart. The panel keeps recent battle reports and highlights reports received since your last visit. This first strategic model resolves encounters at the destination; sector routes and larger map movement are planned for Milestone 8.
+Open **Offline armies** at the bottom of the Economy panel to select unassigned units, name an army, and send it to map coordinates with an attack or defend order. You can set a retreat threshold and choose whether survivors hold or return after an attack. Travel uses server time and resolves after a disconnect or restart. The panel keeps recent battle reports and highlights reports received since your last visit. This first strategic model resolves encounters at the destination; sector routes and larger map movement are planned for Milestone 8.
+
+Enemy buildings can be attacked and destroyed. When a player has no units, production, or viable economy, the server schedules recovery after 30 seconds and selects the safest of eight map sites using distance from enemies and recent recovery sites. The player receives one scout, one ready extractor, and 20 ore at the new location; lost armies, buildings, and map position are not restored. Account, faction, colour, match membership, and saved research remain. The recovery zone protects its structures and units for 60 seconds. Protection ends on expiry or immediately when the player orders an attack; units outside the zone are vulnerable. The active match bar shows the recovery countdown or remaining protection time.
 
 ## Development checks
 

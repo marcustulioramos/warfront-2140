@@ -333,17 +333,23 @@ describe("authoritative simulation", () => {
     );
     const result = restored.snapshot();
     expect(
-      result.battleReports.filter((report) => report.ownerId === "a"),
+      result.battleReports.filter(
+        (report) =>
+          report.ownerId === "a" &&
+          ["battle", "destroyed", "retreated"].includes(report.kind),
+      ),
     ).toHaveLength(1);
     expect(
-      result.battleReports.filter((report) => report.ownerId === "b"),
+      result.battleReports.filter(
+        (report) => report.ownerId === "b" && report.kind === "battle",
+      ),
     ).toHaveLength(1);
     expect(result.battleReports[0]?.enemyLosses).toBeGreaterThan(0);
     expect(result.armies.every((army) => army.arrivesAtMs === null)).toBe(true);
     expect(
       new Simulation(new ManualClock(due + 5000), result).snapshot()
         .battleReports,
-    ).toHaveLength(2);
+    ).toEqual(result.battleReports);
   });
 
   it("retreats surviving armies and completes their return after a long disconnect", () => {
@@ -440,5 +446,157 @@ describe("authoritative simulation", () => {
     expect(
       result.units.find((unit) => unit.id === "medium-b")?.position.z,
     ).toBe(-4);
+  });
+
+  it("destroys enemy structures and cancels their production", () => {
+    const clock = new ManualClock(0);
+    const seed = new Simulation(clock, undefined, "structures");
+    seed.addPlayer("a");
+    seed.addPlayer("b");
+    seed.command("b", {
+      protocolVersion: 1,
+      commandId: move.commandId,
+      type: "BUILD_STRUCTURE",
+      kind: "extractor",
+      nodeId: "node-b",
+    });
+    const near = {
+      ...seed.snapshot(),
+      units: seed
+        .snapshot()
+        .units.map((unit) =>
+          unit.id === "artillery-a"
+            ? { ...unit, position: { x: 14, z: -10 } }
+            : unit,
+        ),
+    };
+    const simulation = new Simulation(clock, near);
+    simulation.command("a", {
+      protocolVersion: 1,
+      commandId: move.commandId,
+      type: "ATTACK_UNIT",
+      unitId: "artillery-a",
+      targetId: "extractor-b",
+    });
+    let destroyed = false;
+    for (let tick = 0; tick < 25; tick++) {
+      clock.advanceBy(1000);
+      destroyed ||= simulation
+        .advance()
+        .combatEvents.some(
+          (event) => event.targetId === "extractor-b" && event.destroyed,
+        );
+    }
+    expect(
+      simulation
+        .snapshot()
+        .buildings.some((building) => building.id === "extractor-b"),
+    ).toBe(false);
+    expect(destroyed).toBe(true);
+  });
+
+  it("schedules a safe recovery, preserves research, and cancels protection on attack", () => {
+    const clock = new ManualClock(1000);
+    const seed = new Simulation(clock, undefined, "recovery");
+    seed.addPlayer("a");
+    seed.addPlayer("b");
+    const wiped = {
+      ...seed.snapshot(),
+      units: seed.snapshot().units.filter((unit) => unit.ownerId !== "b"),
+      research: [
+        { playerId: "a", completed: [] },
+        { playerId: "b", completed: ["laser"] },
+      ],
+    };
+    const simulation = new Simulation(clock, wiped);
+    const pending = simulation
+      .snapshot()
+      .recovery.find((item) => item.playerId === "b")!;
+    expect(pending.respawnAtMs).toBe(31_000);
+    expect(pending.site.x).toBeGreaterThanOrEqual(0);
+    expect(() =>
+      simulation.command("b", { ...move, unitId: "unit-b" }),
+    ).toThrow("Recovery is pending");
+    const restored = new Simulation(
+      new ManualClock(31_000),
+      simulation.snapshot(),
+    );
+    const recovered = restored.snapshot();
+    expect(recovered.units.filter((unit) => unit.ownerId === "b")).toHaveLength(
+      1,
+    );
+    expect(
+      recovered.buildings.filter((building) => building.ownerId === "b"),
+    ).toHaveLength(1);
+    expect(recovered.resources.find((item) => item.playerId === "b")?.ore).toBe(
+      20,
+    );
+    expect(
+      recovered.research.find((item) => item.playerId === "b")?.completed,
+    ).toEqual(["laser"]);
+    const scout = recovered.units.find((unit) => unit.ownerId === "b")!;
+    expect(() =>
+      restored.command("a", {
+        protocolVersion: 1,
+        commandId: move.commandId,
+        type: "ATTACK_UNIT",
+        unitId: "unit-a",
+        targetId: scout.id,
+      }),
+    ).toThrow("protection");
+    restored.command("b", {
+      protocolVersion: 1,
+      commandId: move.commandId,
+      type: "ATTACK_UNIT",
+      unitId: scout.id,
+      targetId: "unit-a",
+    });
+    expect(
+      restored.snapshot().recovery.find((item) => item.playerId === "b")
+        ?.protectionEndsAtMs,
+    ).toBeNull();
+    expect(() =>
+      restored.command("a", {
+        protocolVersion: 1,
+        commandId: move.commandId,
+        type: "ATTACK_UNIT",
+        unitId: "unit-a",
+        targetId: scout.id,
+      }),
+    ).not.toThrow();
+  });
+
+  it("expires protection during downtime without repeating recovery", () => {
+    const clock = new ManualClock(0);
+    const seed = new Simulation(clock, undefined, "recovery-restart");
+    seed.addPlayer("a");
+    seed.addPlayer("b");
+    const wiped = {
+      ...seed.snapshot(),
+      units: seed.snapshot().units.filter((unit) => unit.ownerId !== "b"),
+    };
+    const scheduled = new Simulation(clock, wiped);
+    const afterDowntime = new Simulation(
+      new ManualClock(100_000),
+      scheduled.snapshot(),
+    );
+    const state = afterDowntime.snapshot();
+    expect(
+      state.recovery.find((item) => item.playerId === "b")?.protectionEndsAtMs,
+    ).toBeNull();
+    expect(
+      state.battleReports.filter(
+        (report) => report.ownerId === "b" && report.kind === "respawned",
+      ),
+    ).toHaveLength(1);
+    expect(
+      state.battleReports.filter(
+        (report) =>
+          report.ownerId === "b" && report.kind === "protection_ended",
+      ),
+    ).toHaveLength(1);
+    expect(
+      new Simulation(new ManualClock(110_000), state).snapshot().battleReports,
+    ).toEqual(state.battleReports);
   });
 });

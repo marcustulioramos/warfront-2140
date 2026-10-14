@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { WorldView } from "@warfront/shared";
 
 export const protocolVersion = 1;
-export const snapshotVersion = 4;
+export const snapshotVersion = 5;
 
 const pointSchema = z.object({
   x: z.number().finite(),
@@ -133,8 +133,8 @@ export const economyWorldSnapshotSchema = combatWorldSnapshotSchema.extend({
     z.object({ playerId: z.string(), ore: z.number().finite().nonnegative() }),
   ),
 });
-export const worldSnapshotSchema = economyWorldSnapshotSchema.extend({
-  snapshotVersion: z.literal(snapshotVersion),
+export const armyWorldSnapshotSchema = economyWorldSnapshotSchema.extend({
+  snapshotVersion: z.literal(4),
   armies: z.array(
     z.object({
       id: z.string(),
@@ -162,6 +162,46 @@ export const worldSnapshotSchema = economyWorldSnapshotSchema.extend({
     }),
   ),
 });
+export const worldSnapshotSchema = armyWorldSnapshotSchema.extend({
+  snapshotVersion: z.literal(snapshotVersion),
+  buildings: z.array(
+    z.object({
+      id: z.string(),
+      ownerId: z.string(),
+      kind: z.enum(["extractor", "factory"]),
+      position: pointSchema,
+      nodeId: z.string().nullable(),
+      readyAtMs: z.number().finite(),
+      health: z.number().finite().nonnegative(),
+      maxHealth: z.number().finite().positive(),
+    }),
+  ),
+  battleReports: z.array(
+    armyWorldSnapshotSchema.shape.battleReports.element.extend({
+      kind: z.enum([
+        "arrived",
+        "battle",
+        "retreated",
+        "destroyed",
+        "recovery_scheduled",
+        "respawned",
+        "protection_ended",
+      ]),
+    }),
+  ),
+  recovery: z.array(
+    z.object({
+      playerId: z.string(),
+      generation: z.number().int().nonnegative(),
+      site: pointSchema,
+      respawnAtMs: z.number().finite().nullable(),
+      protectionEndsAtMs: z.number().finite().nullable(),
+    }),
+  ),
+  research: z.array(
+    z.object({ playerId: z.string(), completed: z.array(z.string()) }),
+  ),
+});
 
 export const serverMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("SNAPSHOT"), state: worldSnapshotSchema }),
@@ -185,7 +225,7 @@ export type ServerMessage =
   | {
       readonly type: "SNAPSHOT";
       readonly state: WorldView & {
-        readonly snapshotVersion: 4;
+        readonly snapshotVersion: 5;
         readonly lastSimulatedAtMs: number;
       };
     }

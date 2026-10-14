@@ -2,7 +2,7 @@
 
 This checklist tracks the milestones in the [original project brief](../README.md#the-game-we-are-building). A checked box means the work is implemented and verified; an unchecked box is still to do. Update this file in the same pull request as the work it records.
 
-**Current stage:** Milestone 6 offline armies are running locally. Destruction and respawn are next.
+**Current stage:** Milestone 7 destruction and recovery are running locally. Large map sectors are next.
 
 ## Milestone 0 — architecture and scaffolding
 
@@ -60,11 +60,11 @@ This checklist tracks the milestones in the [original project brief](../README.m
 
 ## Milestone 7 — destruction and respawn
 
-- [ ] Detect when a player has no viable military or economic presence.
-- [ ] Schedule a server chosen, safe recovery location and limited recovery base.
-- [ ] Preserve faction, colour and completed research without restoring lost territory.
-- [ ] Add temporary protection with clear expiry and cancellation rules.
-- [ ] Test respawn and protection across a server restart.
+- [x] Detect when a player has no viable military or economic presence.
+- [x] Schedule a server chosen, safe recovery location and limited recovery base.
+- [x] Preserve faction, colour and completed research without restoring lost territory.
+- [x] Add temporary protection with clear expiry and cancellation rules.
+- [x] Test respawn and protection across a server restart.
 
 ## Milestone 8 — large map architecture
 

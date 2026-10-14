@@ -44,6 +44,14 @@ export const ECONOMY = {
   unitBuildMs: { scout: 8_000, medium: 12_000, artillery: 18_000 },
 } as const;
 
+export const RECOVERY = {
+  respawnDelayMs: 30_000,
+  protectionMs: 60_000,
+  protectionRadius: 8,
+  startingOre: 20,
+  buildingHealth: { extractor: 120, factory: 160 },
+} as const;
+
 export interface Point {
   readonly x: number;
   readonly z: number;
@@ -91,10 +99,25 @@ export interface BattleReport {
   readonly atMs: number;
   readonly armyId: string;
   readonly ownerId: PlayerId;
-  readonly kind: "arrived" | "battle" | "retreated" | "destroyed";
+  readonly kind:
+    | "arrived"
+    | "battle"
+    | "retreated"
+    | "destroyed"
+    | "recovery_scheduled"
+    | "respawned"
+    | "protection_ended";
   readonly message: string;
   readonly ownLosses: number;
   readonly enemyLosses: number;
+}
+
+export interface RecoveryView {
+  readonly playerId: PlayerId;
+  readonly generation: number;
+  readonly site: Point;
+  readonly respawnAtMs: number | null;
+  readonly protectionEndsAtMs: number | null;
 }
 
 export interface WorldView {
@@ -105,6 +128,11 @@ export interface WorldView {
   readonly combatEvents: readonly CombatEvent[];
   readonly armies: readonly ArmyView[];
   readonly battleReports: readonly BattleReport[];
+  readonly recovery: readonly RecoveryView[];
+  readonly research: readonly {
+    playerId: PlayerId;
+    completed: readonly string[];
+  }[];
   readonly resourceNodes: readonly { id: string; position: Point }[];
   readonly buildings: readonly {
     id: string;
@@ -113,6 +141,8 @@ export interface WorldView {
     position: Point;
     nodeId: string | null;
     readyAtMs: number;
+    health: number;
+    maxHealth: number;
   }[];
   readonly production: readonly {
     id: string;

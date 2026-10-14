@@ -2,6 +2,7 @@ import type { ClientCommand } from "@warfront/protocol";
 import { snapshotVersion } from "@warfront/protocol";
 import {
   ECONOMY,
+  RECOVERY,
   UNIT_STATS,
   WORLD_HALF_SIZE,
   type CombatEvent,
@@ -101,11 +102,15 @@ export class Simulation {
           combatEvents: [],
           armies: [],
           battleReports: [],
+          recovery: [],
+          research: matchId ? [] : [{ playerId: "player-1", completed: [] }],
           ...startingEconomy(matchId ? [] : ["player-1"]),
         };
     if (snapshot) {
       this.settleEconomy(clock.nowMs());
       this.settleArmies(clock.nowMs());
+      this.evaluateDefeats(clock.nowMs());
+      this.settleRecovery(clock.nowMs());
     }
   }
 
@@ -131,6 +136,7 @@ export class Simulation {
         ...this.world.resources,
         { playerId, ore: ECONOMY.startingOre },
       ],
+      research: [...this.world.research, { playerId, completed: [] }],
       units: [
         ...this.world.units,
         makeUnit(`unit-${playerId}`, playerId, "scout", { x, z: 0 }),
@@ -142,6 +148,12 @@ export class Simulation {
   }
 
   command(playerId: string, command: ClientCommand): void {
+    if (
+      this.world.recovery.some(
+        (item) => item.playerId === playerId && item.respawnAtMs !== null,
+      )
+    )
+      throw new Error("Recovery is pending");
     if (command.type === "CREATE_ARMY") {
       this.createArmy(
         playerId,
@@ -200,11 +212,13 @@ export class Simulation {
         ),
       };
     } else {
-      const target = this.world.units.find(
+      const target = [...this.world.units, ...this.world.buildings].find(
         (item) => item.id === command.targetId,
       );
       if (!target || target.ownerId === playerId)
         throw new Error("Invalid enemy target");
+      if (this.isProtected(target.ownerId, target.position, this.clock.nowMs()))
+        throw new Error("Target has recovery protection");
       if (
         this.world.armies.some(
           (army) =>
@@ -212,6 +226,7 @@ export class Simulation {
         )
       )
         throw new Error("Target is travelling with an army");
+      this.cancelProtection(playerId, this.clock.nowMs());
       this.world = {
         ...this.world,
         units: this.world.units.map((item) =>
@@ -228,8 +243,15 @@ export class Simulation {
     const previousTime = this.world.lastSimulatedAtMs;
     this.settleEconomy(now);
     this.settleArmies(now);
+    this.evaluateDefeats(now);
+    this.settleRecovery(now);
     const deltaMs = Math.max(0, Math.min(now - previousTime, 1000));
-    const original = new Map(this.world.units.map((unit) => [unit.id, unit]));
+    const original = new Map(
+      [...this.world.units, ...this.world.buildings].map((item) => [
+        item.id,
+        item,
+      ]),
+    );
     const travelling = new Set(
       this.world.armies
         .filter((army) => army.arrivesAtMs !== null)
@@ -242,7 +264,11 @@ export class Simulation {
       let position = unit.position;
       let destination = unit.destination;
       let targetId = unit.targetId;
-      if (target && target.ownerId !== unit.ownerId) {
+      if (
+        target &&
+        target.ownerId !== unit.ownerId &&
+        !this.isProtected(target.ownerId, target.position, now)
+      ) {
         const remaining = Math.max(
           0,
           distance(position, target.position) - stats.range * 0.9,
@@ -271,7 +297,9 @@ export class Simulation {
       };
     });
 
-    const byId = new Map(moved.map((unit) => [unit.id, unit]));
+    const byId = new Map(
+      [...moved, ...this.world.buildings].map((item) => [item.id, item]),
+    );
     const damage = new Map<string, number>();
     const rawEvents: Omit<CombatEvent, "destroyed">[] = [];
     const fired = new Set<string>();
@@ -280,6 +308,7 @@ export class Simulation {
       if (!unit.targetId || unit.cooldownMs > 0 || deltaMs === 0) continue;
       const target = byId.get(unit.targetId);
       if (!target || target.ownerId === unit.ownerId) continue;
+      if (this.isProtected(target.ownerId, target.position, now)) continue;
       if (travelling.has(target.id)) continue;
       const stats = UNIT_STATS[unit.role];
       if (distance(unit.position, target.position) > stats.range) continue;
@@ -300,9 +329,17 @@ export class Simulation {
         ? UNIT_STATS[unit.role].reloadMs
         : unit.cooldownMs,
     }));
-    const alive = new Set(
-      damaged.filter((unit) => unit.health > 0).map((unit) => unit.id),
+    const damagedBuildings = this.world.buildings.map((building) => ({
+      ...building,
+      health: Math.max(0, building.health - (damage.get(building.id) ?? 0)),
+    }));
+    const survivingBuildings = damagedBuildings.filter(
+      (building) => building.health > 0,
     );
+    const alive = new Set([
+      ...damaged.filter((unit) => unit.health > 0).map((unit) => unit.id),
+      ...survivingBuildings.map((building) => building.id),
+    ]);
     const combatEvents: CombatEvent[] = rawEvents.map((event) => ({
       ...event,
       destroyed: !alive.has(event.targetId),
@@ -324,8 +361,13 @@ export class Simulation {
           unitIds: army.unitIds.filter((id) => alive.has(id)),
         }))
         .filter((army) => army.unitIds.length > 0),
+      buildings: survivingBuildings,
+      production: this.world.production.filter((job) =>
+        alive.has(job.factoryId),
+      ),
       combatEvents,
     };
+    this.evaluateDefeats(now);
     return this.snapshot();
   }
 
@@ -410,6 +452,8 @@ export class Simulation {
       1000,
       Math.ceil((distance(origin, destination) / slowest) * 5000),
     );
+    if (stance === "attack")
+      this.cancelProtection(playerId, this.clock.nowMs());
     this.world = {
       ...this.world,
       armies: this.world.armies.map((item) =>
@@ -482,6 +526,7 @@ export class Simulation {
           ownLosses: 0,
           enemyLosses: 0,
         });
+      this.evaluateDefeats(arrival);
     }
   }
 
@@ -498,6 +543,7 @@ export class Simulation {
       (unit) =>
         unit.ownerId !== army.ownerId &&
         !travelling.has(unit.id) &&
+        !this.isProtected(unit.ownerId, unit.position, atMs) &&
         distance(unit.position, army.destination) <= 10,
     );
     const defenderArmies = this.world.armies.filter(
@@ -586,13 +632,46 @@ export class Simulation {
     const ownLosses =
       initialAttackers -
       attackers.filter((unit) => (hp.get(unit.id) ?? 0) > 0).length;
-    const enemyLosses =
+    let enemyLosses =
       initialDefenders -
       defenders.filter((unit) => (hp.get(unit.id) ?? 0) > 0).length;
     const survivingIds = new Set(survivors.map((unit) => unit.id));
     const returnHome =
       retreated || (army.postBattle === "return" && survivingIds.size > 0);
     const remaining = attackers.filter((unit) => survivingIds.has(unit.id));
+    const affectedOwners = new Set([
+      ...defenders.map((unit) => unit.ownerId),
+      ...this.world.buildings
+        .filter(
+          (building) =>
+            building.ownerId !== army.ownerId &&
+            distance(building.position, army.destination) <= 10 &&
+            !this.isProtected(building.ownerId, building.position, atMs),
+        )
+        .map((building) => building.ownerId),
+    ]);
+    let buildings = [...this.world.buildings];
+    if (remaining.length && !retreated) {
+      let siegeDamage = remaining.reduce(
+        (sum, unit) => sum + UNIT_STATS[unit.role].damage * 8,
+        0,
+      );
+      buildings = buildings
+        .map((building) => {
+          if (
+            building.ownerId === army.ownerId ||
+            distance(building.position, army.destination) > 10 ||
+            this.isProtected(building.ownerId, building.position, atMs) ||
+            siegeDamage <= 0
+          )
+            return building;
+          const applied = Math.min(building.health, siegeDamage);
+          siegeDamage -= applied;
+          if (applied >= building.health) enemyLosses += 1;
+          return { ...building, health: building.health - applied };
+        })
+        .filter((building) => building.health > 0);
+    }
     const travelMs = remaining.length
       ? Math.max(
           1000,
@@ -608,6 +687,10 @@ export class Simulation {
     this.world = {
       ...this.world,
       units: survivors,
+      buildings,
+      production: this.world.production.filter((job) =>
+        buildings.some((building) => building.id === job.factoryId),
+      ),
       armies: this.world.armies
         .map((item) => {
           if (item.id === army.id)
@@ -666,11 +749,11 @@ export class Simulation {
           : retreated
             ? "retreated"
             : "battle",
-      message: `${army.name} ${retreated ? "retreated from" : "reached"} the target. ${enemyLosses} enemy units and ${ownLosses} allied units lost.${returnHome && remaining.length ? " Survivors returning." : ""}`,
+      message: `${army.name} ${retreated ? "retreated from" : "reached"} the target. ${enemyLosses} enemy assets and ${ownLosses} allied units lost.${returnHome && remaining.length ? " Survivors returning." : ""}`,
       ownLosses,
       enemyLosses,
     });
-    for (const ownerId of new Set(defenders.map((unit) => unit.ownerId)))
+    for (const ownerId of affectedOwners)
       this.addReport({
         id: `${army.id}-${atMs}-${ownerId}`,
         atMs,
@@ -682,7 +765,7 @@ export class Simulation {
         )
           ? "retreated"
           : "battle",
-        message: `${army.name} attacked your units. ${ownLosses} attackers and ${enemyLosses} defenders lost.${defenderArmies.some((item) => item.ownerId === ownerId && retreatingDefenders.has(item.id)) ? " Your army retreated." : ""}`,
+        message: `${army.name} attacked your position. ${ownLosses} attackers and ${enemyLosses} defenders or structures lost.${defenderArmies.some((item) => item.ownerId === ownerId && retreatingDefenders.has(item.id)) ? " Your army retreated." : ""}`,
         ownLosses: enemyLosses,
         enemyLosses: ownLosses,
       });
@@ -693,6 +776,235 @@ export class Simulation {
       ...this.world,
       battleReports: [...this.world.battleReports, report].slice(-100),
     };
+  }
+
+  private isProtected(
+    playerId: string,
+    position: Point,
+    atMs: number,
+  ): boolean {
+    const recovery = this.world.recovery.find(
+      (item) => item.playerId === playerId,
+    );
+    return (
+      !!recovery?.protectionEndsAtMs &&
+      recovery.protectionEndsAtMs > atMs &&
+      distance(position, recovery.site) <= RECOVERY.protectionRadius
+    );
+  }
+
+  private cancelProtection(playerId: string, atMs: number): void {
+    const recovery = this.world.recovery.find(
+      (item) => item.playerId === playerId,
+    );
+    if (!recovery?.protectionEndsAtMs || recovery.protectionEndsAtMs <= atMs)
+      return;
+    this.world = {
+      ...this.world,
+      recovery: this.world.recovery.map((item) =>
+        item.playerId === playerId
+          ? { ...item, protectionEndsAtMs: null }
+          : item,
+      ),
+    };
+    this.addReport({
+      id: `protection-cancelled-${playerId}-${recovery.generation}`,
+      atMs,
+      armyId: `recovery-${playerId}`,
+      ownerId: playerId,
+      kind: "protection_ended",
+      message: "Recovery protection ended when you issued an attack order.",
+      ownLosses: 0,
+      enemyLosses: 0,
+    });
+  }
+
+  private chooseRecoverySite(playerId: string): Point {
+    const candidates: Point[] = [
+      { x: -16, z: -16 },
+      { x: 16, z: 16 },
+      { x: -16, z: 16 },
+      { x: 16, z: -16 },
+      { x: 0, z: -16 },
+      { x: 0, z: 16 },
+      { x: -16, z: 0 },
+      { x: 16, z: 0 },
+    ];
+    const hazards = [
+      ...this.world.units
+        .filter((unit) => unit.ownerId !== playerId)
+        .map((unit) => unit.position),
+      ...this.world.buildings
+        .filter((building) => building.ownerId !== playerId)
+        .map((building) => building.position),
+      ...this.world.recovery
+        .filter((item) => item.playerId !== playerId)
+        .map((item) => item.site),
+    ];
+    return candidates.reduce((best, candidate) => {
+      const score = hazards.length
+        ? Math.min(...hazards.map((point) => distance(candidate, point)))
+        : 100;
+      const bestScore = hazards.length
+        ? Math.min(...hazards.map((point) => distance(best, point)))
+        : 100;
+      return score > bestScore ? candidate : best;
+    });
+  }
+
+  private evaluateDefeats(atMs: number): void {
+    for (const playerId of this.world.playerIds) {
+      if (
+        this.world.recovery.some(
+          (item) => item.playerId === playerId && item.respawnAtMs !== null,
+        )
+      )
+        continue;
+      const hasUnits = this.world.units.some(
+        (unit) => unit.ownerId === playerId,
+      );
+      const hasProduction = this.world.production.some(
+        (job) => job.ownerId === playerId,
+      );
+      const ore =
+        this.world.resources.find((item) => item.playerId === playerId)?.ore ??
+        0;
+      const hasEconomy = this.world.buildings.some(
+        (building) =>
+          building.ownerId === playerId &&
+          (building.kind === "extractor" || ore >= ECONOMY.unitCost.scout),
+      );
+      if (hasUnits || hasProduction || hasEconomy) continue;
+      const previous = this.world.recovery.find(
+        (item) => item.playerId === playerId,
+      );
+      const generation = (previous?.generation ?? 0) + 1;
+      const site = this.chooseRecoverySite(playerId);
+      this.world = {
+        ...this.world,
+        recovery: [
+          ...this.world.recovery.filter((item) => item.playerId !== playerId),
+          {
+            playerId,
+            generation,
+            site,
+            respawnAtMs: atMs + RECOVERY.respawnDelayMs,
+            protectionEndsAtMs: null,
+          },
+        ],
+        armies: this.world.armies.filter((army) => army.ownerId !== playerId),
+        buildings: this.world.buildings.filter(
+          (building) => building.ownerId !== playerId,
+        ),
+        production: this.world.production.filter(
+          (job) => job.ownerId !== playerId,
+        ),
+      };
+      this.addReport({
+        id: `recovery-scheduled-${playerId}-${generation}`,
+        atMs,
+        armyId: `recovery-${playerId}`,
+        ownerId: playerId,
+        kind: "recovery_scheduled",
+        message: `Force destroyed. Recovery base scheduled at (${site.x}, ${site.z}) in ${RECOVERY.respawnDelayMs / 1000} seconds.`,
+        ownLosses: 0,
+        enemyLosses: 0,
+      });
+    }
+  }
+
+  private settleRecovery(now: number): void {
+    for (const recovery of this.world.recovery.filter(
+      (item) => item.respawnAtMs !== null && item.respawnAtMs <= now,
+    )) {
+      const atMs = recovery.respawnAtMs!;
+      const playerId = recovery.playerId;
+      const nodeId = `node-${playerId}`;
+      const basePosition = recovery.site;
+      this.world = {
+        ...this.world,
+        units: [
+          ...this.world.units.filter((unit) => unit.ownerId !== playerId),
+          makeUnit(
+            `recovery-scout-${playerId}-${recovery.generation}`,
+            playerId,
+            "scout",
+            { x: basePosition.x + 2, z: basePosition.z },
+          ),
+        ],
+        buildings: [
+          ...this.world.buildings.filter(
+            (building) => building.ownerId !== playerId,
+          ),
+          {
+            id: `extractor-${playerId}-recovery-${recovery.generation}`,
+            ownerId: playerId,
+            kind: "extractor" as const,
+            position: basePosition,
+            nodeId,
+            readyAtMs: atMs,
+            health: RECOVERY.buildingHealth.extractor,
+            maxHealth: RECOVERY.buildingHealth.extractor,
+          },
+        ],
+        resourceNodes: [
+          ...this.world.resourceNodes.filter((node) => node.id !== nodeId),
+          { id: nodeId, position: basePosition },
+        ],
+        resources: this.world.resources.map((balance) =>
+          balance.playerId === playerId
+            ? {
+                ...balance,
+                ore:
+                  RECOVERY.startingOre +
+                  (Math.max(0, now - atMs) * ECONOMY.orePerSecond) / 1000,
+              }
+            : balance,
+        ),
+        recovery: this.world.recovery.map((item) =>
+          item.playerId === playerId
+            ? {
+                ...item,
+                respawnAtMs: null,
+                protectionEndsAtMs: atMs + RECOVERY.protectionMs,
+              }
+            : item,
+        ),
+      };
+      this.addReport({
+        id: `respawned-${playerId}-${recovery.generation}`,
+        atMs,
+        armyId: `recovery-${playerId}`,
+        ownerId: playerId,
+        kind: "respawned",
+        message: `Recovery base established at (${basePosition.x}, ${basePosition.z}). One scout and extractor are ready. Protection lasts ${RECOVERY.protectionMs / 1000} seconds.`,
+        ownLosses: 0,
+        enemyLosses: 0,
+      });
+    }
+    for (const recovery of this.world.recovery.filter(
+      (item) =>
+        item.protectionEndsAtMs !== null && item.protectionEndsAtMs <= now,
+    )) {
+      this.world = {
+        ...this.world,
+        recovery: this.world.recovery.map((item) =>
+          item.playerId === recovery.playerId
+            ? { ...item, protectionEndsAtMs: null }
+            : item,
+        ),
+      };
+      this.addReport({
+        id: `protection-expired-${recovery.playerId}-${recovery.generation}`,
+        atMs: recovery.protectionEndsAtMs!,
+        armyId: `recovery-${recovery.playerId}`,
+        ownerId: recovery.playerId,
+        kind: "protection_ended",
+        message: "Recovery protection expired.",
+        ownLosses: 0,
+        enemyLosses: 0,
+      });
+    }
   }
 
   private spend(playerId: string, cost: number): void {
@@ -729,10 +1041,18 @@ export class Simulation {
       kind === "extractor" ? ECONOMY.extractorCost : ECONOMY.factoryCost,
     );
     const index = this.world.playerIds.indexOf(playerId);
+    const recoverySite = this.world.recovery.find(
+      (item) => item.playerId === playerId && item.respawnAtMs === null,
+    )?.site;
     const position =
       kind === "extractor"
         ? node!.position
-        : { x: index === 0 ? -12 : 12, z: 10 };
+        : recoverySite
+          ? {
+              x: Math.min(WORLD_HALF_SIZE - 1, recoverySite.x + 3),
+              z: Math.min(WORLD_HALF_SIZE - 1, recoverySite.z + 3),
+            }
+          : { x: index === 0 ? -12 : 12, z: 10 };
     this.world = {
       ...this.world,
       buildings: [
@@ -748,6 +1068,8 @@ export class Simulation {
             (kind === "extractor"
               ? ECONOMY.extractorBuildMs
               : ECONOMY.factoryBuildMs),
+          health: RECOVERY.buildingHealth[kind],
+          maxHealth: RECOVERY.buildingHealth[kind],
         },
       ],
     };

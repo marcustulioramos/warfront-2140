@@ -5,10 +5,16 @@ import {
   legacyWorldSnapshotSchema,
   combatWorldSnapshotSchema,
   economyWorldSnapshotSchema,
+  armyWorldSnapshotSchema,
   snapshotVersion,
   worldSnapshotSchema,
 } from "@warfront/protocol";
-import { UNIT_STATS, WORLD_HALF_SIZE, type UnitView } from "@warfront/shared";
+import {
+  RECOVERY,
+  UNIT_STATS,
+  WORLD_HALF_SIZE,
+  type UnitView,
+} from "@warfront/shared";
 import { startingEconomy, type WorldSnapshot } from "@warfront/simulation";
 
 const migrations = [
@@ -16,7 +22,27 @@ const migrations = [
   "0002_multiplayer",
   "0003_durable_events",
   "0004_match_ownership",
+  "0005_recovery_events",
 ];
+
+function upgradeArmySnapshot(
+  snapshot: ReturnType<typeof armyWorldSnapshotSchema.parse>,
+): WorldSnapshot {
+  return {
+    ...snapshot,
+    snapshotVersion,
+    buildings: snapshot.buildings.map((building) => ({
+      ...building,
+      health: RECOVERY.buildingHealth[building.kind],
+      maxHealth: RECOVERY.buildingHealth[building.kind],
+    })),
+    recovery: [],
+    research: snapshot.playerIds.map((playerId) => ({
+      playerId,
+      completed: [],
+    })),
+  };
+}
 
 export class WorldStore {
   constructor(private readonly pool: pg.Pool) {}
@@ -68,23 +94,29 @@ export class WorldStore {
     if (!row) return undefined;
     const current = worldSnapshotSchema.safeParse(row.snapshot);
     if (current.success) return current.data;
+    const army = armyWorldSnapshotSchema.safeParse(row.snapshot);
+    if (army.success) return upgradeArmySnapshot(army.data);
     const economy = economyWorldSnapshotSchema.safeParse(row.snapshot);
     if (economy.success)
-      return {
-        ...economy.data,
-        snapshotVersion,
-        armies: [],
-        battleReports: [],
-      };
+      return upgradeArmySnapshot(
+        armyWorldSnapshotSchema.parse({
+          ...economy.data,
+          snapshotVersion: 4,
+          armies: [],
+          battleReports: [],
+        }),
+      );
     const combat = combatWorldSnapshotSchema.safeParse(row.snapshot);
     if (combat.success)
-      return {
-        ...combat.data,
-        snapshotVersion,
-        ...startingEconomy(combat.data.playerIds),
-        armies: [],
-        battleReports: [],
-      };
+      return upgradeArmySnapshot(
+        armyWorldSnapshotSchema.parse({
+          ...combat.data,
+          snapshotVersion: 4,
+          ...startingEconomy(combat.data.playerIds),
+          armies: [],
+          battleReports: [],
+        }),
+      );
     const legacy = legacyWorldSnapshotSchema.parse(row.snapshot);
     const playerIds = [...new Set(legacy.units.map((unit) => unit.ownerId))];
     const units: UnitView[] = legacy.units.flatMap((unit) => {
@@ -118,16 +150,18 @@ export class WorldStore {
       );
       return [scout, ...extra];
     });
-    return {
-      ...legacy,
-      snapshotVersion,
-      playerIds,
-      units,
-      combatEvents: [],
-      ...startingEconomy(playerIds),
-      armies: [],
-      battleReports: [],
-    };
+    return upgradeArmySnapshot(
+      armyWorldSnapshotSchema.parse({
+        ...legacy,
+        snapshotVersion: 4,
+        playerIds,
+        units,
+        combatEvents: [],
+        ...startingEconomy(playerIds),
+        armies: [],
+        battleReports: [],
+      }),
+    );
   }
 
   async save(snapshot: WorldSnapshot): Promise<void> {
@@ -218,6 +252,36 @@ export class WorldStore {
          VALUES ($1, $2, 'unit_ready', $3) ON CONFLICT DO NOTHING`,
         [snapshot.matchId, `unit-${job.id}`, job.readyAtMs],
       );
+    }
+    for (const recovery of snapshot.recovery) {
+      const respawnId = `respawn-${recovery.playerId}-${recovery.generation}`;
+      const protectionId = `protection-${recovery.playerId}-${recovery.generation}`;
+      if (recovery.respawnAtMs !== null) {
+        await client.query(
+          `INSERT INTO match_scheduled_events (match_id, event_id, kind, due_at_ms)
+           VALUES ($1, $2, 'respawn', $3) ON CONFLICT DO NOTHING`,
+          [snapshot.matchId, respawnId, recovery.respawnAtMs],
+        );
+      } else {
+        await client.query(
+          `UPDATE match_scheduled_events SET applied_at_ms = $3
+           WHERE match_id = $1 AND event_id = $2 AND applied_at_ms IS NULL`,
+          [snapshot.matchId, respawnId, snapshot.lastSimulatedAtMs],
+        );
+      }
+      if (recovery.protectionEndsAtMs !== null) {
+        await client.query(
+          `INSERT INTO match_scheduled_events (match_id, event_id, kind, due_at_ms)
+           VALUES ($1, $2, 'protection_end', $3) ON CONFLICT DO NOTHING`,
+          [snapshot.matchId, protectionId, recovery.protectionEndsAtMs],
+        );
+      } else {
+        await client.query(
+          `UPDATE match_scheduled_events SET applied_at_ms = $3
+           WHERE match_id = $1 AND event_id = $2 AND applied_at_ms IS NULL`,
+          [snapshot.matchId, protectionId, snapshot.lastSimulatedAtMs],
+        );
+      }
     }
     await client.query(
       `UPDATE match_scheduled_events SET applied_at_ms = $2

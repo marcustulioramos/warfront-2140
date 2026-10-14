@@ -20,6 +20,7 @@ import {
 } from "@warfront/protocol";
 import {
   ECONOMY,
+  RECOVERY,
   UNIT_STATS,
   WORLD_HALF_SIZE,
   type Point,
@@ -65,6 +66,7 @@ const hideTestMatches = element<HTMLInputElement>("#hide-test-matches");
 const accountLabel = element<HTMLElement>("#account-label");
 const matchLabel = element<HTMLElement>("#match-label");
 const playerList = element<HTMLElement>("#player-list");
+const recoveryStatus = element<HTMLElement>("#recovery-status");
 
 interface Player {
   id: string;
@@ -206,12 +208,14 @@ function showLobby(): void {
   units.clear();
   selectionRing.setEnabled(false);
   destinationRing.setEnabled(false);
+  recoveryRing.setEnabled(false);
   for (const bar of healthBars.values()) bar.dispose();
   healthBars.clear();
   targetPositions.clear();
   unitRoster.replaceChildren();
   unitButtons.clear();
   combatLog.textContent = "No combat yet.";
+  recoveryStatus.textContent = "";
   lastCombatTick = -1;
   lobbyPanel.hidden = false;
   authForm.hidden = !!me;
@@ -462,6 +466,23 @@ const destinationMaterial = new StandardMaterial("destination-material", scene);
 destinationMaterial.emissiveColor = new Color3(1, 0.7, 0.2);
 destinationRing.material = destinationMaterial;
 
+const recoveryRing = MeshBuilder.CreateTorus(
+  "recovery-zone-ring",
+  {
+    diameter: RECOVERY.protectionRadius * 2,
+    thickness: 0.12,
+    tessellation: 64,
+  },
+  scene,
+);
+recoveryRing.rotation.x = Math.PI / 2;
+recoveryRing.position.y = 0.14;
+recoveryRing.isPickable = false;
+recoveryRing.setEnabled(false);
+const recoveryMaterial = new StandardMaterial("recovery-zone-material", scene);
+recoveryMaterial.emissiveColor = new Color3(0.15, 0.85, 1);
+recoveryRing.material = recoveryMaterial;
+
 let socket: WebSocket | undefined;
 let currentState: WorldView | undefined;
 let hasSnapshot = false;
@@ -490,6 +511,27 @@ function showState(state: WorldView & { lastSimulatedAtMs: number }): void {
   const previous = currentState;
   currentState = state;
   const serverNow = state.lastSimulatedAtMs;
+  const recovery = state.recovery.find((item) => item.playerId === myPlayerId);
+  const recoveryPending = !!recovery?.respawnAtMs;
+  recoveryStatus.textContent = recovery?.respawnAtMs
+    ? `Recovery in ${Math.max(0, Math.ceil((recovery.respawnAtMs - serverNow) / 1000))}s at (${recovery.site.x}, ${recovery.site.z})`
+    : recovery?.protectionEndsAtMs && recovery.protectionEndsAtMs > serverNow
+      ? `Protected near (${recovery.site.x}, ${recovery.site.z}), radius ${RECOVERY.protectionRadius} · ${Math.ceil((recovery.protectionEndsAtMs - serverNow) / 1000)}s`
+      : "";
+  const showRecoveryZone =
+    !!recovery &&
+    (recovery.respawnAtMs !== null ||
+      (recovery.protectionEndsAtMs !== null &&
+        recovery.protectionEndsAtMs > serverNow));
+  recoveryRing.setEnabled(showRecoveryZone);
+  if (showRecoveryZone && recovery) {
+    recoveryRing.position.x = recovery.site.x;
+    recoveryRing.position.z = recovery.site.z;
+    recoveryMaterial.emissiveColor =
+      recovery.respawnAtMs !== null
+        ? new Color3(1, 0.65, 0.15)
+        : new Color3(0.15, 0.85, 1);
+  }
   const balance =
     state.resources.find((item) => item.playerId === myPlayerId)?.ore ?? 0;
   oreBalance.textContent = `Ore: ${Math.floor(balance)} · +${ECONOMY.orePerSecond}/sec per extractor`;
@@ -500,9 +542,15 @@ function showState(state: WorldView & { lastSimulatedAtMs: number }): void {
     (item) => item.ownerId === myPlayerId && item.kind === "factory",
   );
   buildExtractor.disabled =
-    !myPlayerId || !!extractor || balance < ECONOMY.extractorCost;
+    !myPlayerId ||
+    recoveryPending ||
+    !!extractor ||
+    balance < ECONOMY.extractorCost;
   buildFactory.disabled =
-    !myPlayerId || !!factory || balance < ECONOMY.factoryCost;
+    !myPlayerId ||
+    recoveryPending ||
+    !!factory ||
+    balance < ECONOMY.factoryCost;
   const factoryReady = !!factory && factory.readyAtMs <= serverNow;
   const job = state.production.find((item) => item.ownerId === myPlayerId);
   for (const role of ["scout", "medium", "artillery"] as const) {
@@ -558,7 +606,7 @@ function showState(state: WorldView & { lastSimulatedAtMs: number }): void {
         building.kind === "factory" ? 1.1 : 0.75,
         building.position.z,
       );
-      mesh.isPickable = false;
+      mesh.isPickable = true;
       const material = new StandardMaterial(`building-${building.id}`, scene);
       material.diffuseColor =
         building.ownerId === myPlayerId
@@ -569,6 +617,11 @@ function showState(state: WorldView & { lastSimulatedAtMs: number }): void {
     }
     structures.get(building.id)!.scaling.y =
       building.readyAtMs > serverNow ? 0.4 : 1;
+    const material = structures.get(building.id)!.material as StandardMaterial;
+    material.emissiveColor =
+      building.health / building.maxHealth < 0.35
+        ? new Color3(0.6, 0.08, 0.05)
+        : Color3.Black();
   }
   if (
     activeMatch &&
@@ -727,7 +780,7 @@ function showState(state: WorldView & { lastSimulatedAtMs: number }): void {
       );
       order.textContent = `Moving to ${focused.destination.x.toFixed(1)}, ${focused.destination.z.toFixed(1)}`;
     } else if (focused.targetId) {
-      order.textContent = `Attacking ${state.units.find((unit) => unit.id === focused.targetId)?.role ?? "enemy"}.`;
+      order.textContent = `Attacking ${state.units.find((unit) => unit.id === focused.targetId)?.role ?? state.buildings.find((building) => building.id === focused.targetId)?.kind ?? "enemy"}.`;
     } else {
       order.textContent = "Holding position.";
     }
@@ -771,7 +824,10 @@ function showState(state: WorldView & { lastSimulatedAtMs: number }): void {
         (unit) => unit.id === event.attackerId,
       );
       const target = previous?.units.find((unit) => unit.id === event.targetId);
-      combatLog.textContent = `${attacker ? roleName(attacker.role) : "Unit"} hit ${target ? roleName(target.role) : "enemy"} for ${event.damage}${event.destroyed ? " — destroyed!" : ""}`;
+      const targetBuilding = previous?.buildings.find(
+        (building) => building.id === event.targetId,
+      );
+      combatLog.textContent = `${attacker ? roleName(attacker.role) : "Unit"} hit ${target ? roleName(target.role) : (targetBuilding?.kind ?? "enemy")} for ${event.damage}${event.destroyed ? " — destroyed!" : ""}`;
     }
   }
 }
@@ -932,6 +988,17 @@ scene.onPointerDown = (event, pick) => {
     );
     if (enemy) {
       sendAttack(enemy[0]);
+      return;
+    }
+    const enemyBuilding = [...structures.entries()].find(
+      ([id, mesh]) =>
+        mesh === pick?.pickedMesh &&
+        currentState?.buildings.some(
+          (building) => building.id === id && building.ownerId !== myPlayerId,
+        ),
+    );
+    if (enemyBuilding) {
+      sendAttack(enemyBuilding[0]);
       return;
     }
     const terrainPick = scene.pick(

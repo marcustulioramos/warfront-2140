@@ -125,7 +125,7 @@ describeWithDatabase("PostgreSQL world recovery", () => {
         ],
       );
       const loaded = await store.load(matchId);
-      expect(loaded?.snapshotVersion).toBe(4);
+      expect(loaded?.snapshotVersion).toBe(5);
       expect(loaded?.playerIds).toEqual(["old"]);
       expect(loaded?.units.map((unit) => unit.role)).toEqual([
         "scout",
@@ -229,7 +229,7 @@ describeWithDatabase("PostgreSQL world recovery", () => {
         ],
       );
       const loaded = await store.load(matchId);
-      expect(loaded?.snapshotVersion).toBe(4);
+      expect(loaded?.snapshotVersion).toBe(5);
       expect(loaded?.resources).toEqual([{ playerId: "veteran", ore: 100 }]);
       expect(loaded?.resourceNodes[0]?.id).toBe("node-veteran");
       expect(loaded?.units).toHaveLength(3);
@@ -262,7 +262,7 @@ describeWithDatabase("PostgreSQL world recovery", () => {
         [matchId, JSON.stringify({ ...oldSnapshot, snapshotVersion: 3 })],
       );
       const upgraded = await store.load(matchId);
-      expect(upgraded?.snapshotVersion).toBe(4);
+      expect(upgraded?.snapshotVersion).toBe(5);
       expect(upgraded?.armies).toEqual([]);
       const simulation = new Simulation(clock, upgraded);
       const armyId = randomUUID();
@@ -310,6 +310,155 @@ describeWithDatabase("PostgreSQL world recovery", () => {
       await pool.query("DELETE FROM match_commands WHERE match_id = $1", [
         matchId,
       ]);
+      await pool.query(
+        "DELETE FROM match_scheduled_events WHERE match_id = $1",
+        [matchId],
+      );
+      await pool.query("DELETE FROM world_snapshots WHERE match_id = $1", [
+        matchId,
+      ]);
+      await pool.end();
+    }
+  });
+
+  it("upgrades army-era snapshots with structure health and recovery state", async () => {
+    if (!databaseUrl) throw new Error("DATABASE_URL_TEST is required");
+    const pool = new pg.Pool({ connectionString: databaseUrl });
+    const store = new WorldStore(pool);
+    const matchId = `upgrade-army-${randomUUID()}`;
+    try {
+      await store.migrate();
+      const seed = new Simulation(new ManualClock(1000), undefined, matchId);
+      seed.addPlayer("a");
+      seed.command("a", {
+        protocolVersion: 1,
+        commandId: randomUUID(),
+        type: "BUILD_STRUCTURE",
+        kind: "extractor",
+        nodeId: "node-a",
+      });
+      const snapshot = seed.snapshot();
+      const old = {
+        ...snapshot,
+        snapshotVersion: 4,
+        recovery: undefined,
+        research: undefined,
+        buildings: snapshot.buildings.map((building) => ({
+          id: building.id,
+          ownerId: building.ownerId,
+          kind: building.kind,
+          position: building.position,
+          nodeId: building.nodeId,
+          readyAtMs: building.readyAtMs,
+        })),
+      };
+      await pool.query(
+        "INSERT INTO world_snapshots (match_id, snapshot) VALUES ($1, $2::jsonb)",
+        [matchId, JSON.stringify(old)],
+      );
+      const loaded = await store.load(matchId);
+      expect(loaded?.snapshotVersion).toBe(5);
+      expect(loaded?.buildings[0]?.health).toBe(120);
+      expect(loaded?.recovery).toEqual([]);
+      expect(loaded?.research).toEqual([{ playerId: "a", completed: [] }]);
+    } finally {
+      await pool.query(
+        "DELETE FROM match_scheduled_events WHERE match_id = $1",
+        [matchId],
+      );
+      await pool.query("DELETE FROM world_snapshots WHERE match_id = $1", [
+        matchId,
+      ]);
+      await pool.end();
+    }
+  });
+
+  it("restores respawn and protection timers after server downtime", async () => {
+    if (!databaseUrl) throw new Error("DATABASE_URL_TEST is required");
+    const pool = new pg.Pool({ connectionString: databaseUrl });
+    const store = new WorldStore(pool);
+    const matchId = `recovery-${randomUUID()}`;
+    try {
+      await store.migrate();
+      const clock = new ManualClock(1000);
+      const seed = new Simulation(clock, undefined, matchId);
+      seed.addPlayer("a");
+      seed.addPlayer("b");
+      const wiped = {
+        ...seed.snapshot(),
+        units: seed.snapshot().units.filter((unit) => unit.ownerId !== "b"),
+        research: [
+          { playerId: "a", completed: [] },
+          { playerId: "b", completed: ["laser"] },
+        ],
+      };
+      await store.save(new Simulation(clock, wiped).snapshot());
+      const pendingEvents = await pool.query<{
+        kind: string;
+        applied_at_ms: number | null;
+      }>(
+        "SELECT kind, applied_at_ms FROM match_scheduled_events WHERE match_id = $1 AND kind = 'respawn'",
+        [matchId],
+      );
+      expect(pendingEvents.rows).toEqual([
+        { kind: "respawn", applied_at_ms: null },
+      ]);
+      const protectedHost = await MatchHost.create(
+        new ManualClock(31_000),
+        store,
+        matchId,
+        () => undefined,
+        () => undefined,
+      );
+      expect(
+        protectedHost.snapshot().recovery.find((item) => item.playerId === "b")
+          ?.protectionEndsAtMs,
+      ).toBe(91_000);
+      expect(
+        protectedHost.snapshot().research.find((item) => item.playerId === "b")
+          ?.completed,
+      ).toEqual(["laser"]);
+      const expiredHost = await MatchHost.create(
+        new ManualClock(100_000),
+        store,
+        matchId,
+        () => undefined,
+        () => undefined,
+      );
+      expect(
+        expiredHost.snapshot().recovery.find((item) => item.playerId === "b")
+          ?.protectionEndsAtMs,
+      ).toBeNull();
+      expect(
+        expiredHost
+          .snapshot()
+          .battleReports.filter(
+            (report) => report.ownerId === "b" && report.kind === "respawned",
+          ),
+      ).toHaveLength(1);
+      const recoveryEvents = await pool.query<{
+        kind: string;
+        applied_at_ms: number | null;
+      }>(
+        "SELECT kind, applied_at_ms FROM match_scheduled_events WHERE match_id = $1 AND kind IN ('respawn', 'protection_end') ORDER BY kind",
+        [matchId],
+      );
+      expect(recoveryEvents.rows.map((event) => event.kind)).toEqual([
+        "protection_end",
+        "respawn",
+      ]);
+      expect(
+        recoveryEvents.rows.every((event) => event.applied_at_ms !== null),
+      ).toBe(true);
+      expect(
+        expiredHost
+          .snapshot()
+          .battleReports.filter(
+            (report) =>
+              report.ownerId === "b" && report.kind === "protection_ended",
+          ),
+      ).toHaveLength(1);
+    } finally {
       await pool.query(
         "DELETE FROM match_scheduled_events WHERE match_id = $1",
         [matchId],
