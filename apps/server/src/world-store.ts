@@ -4,6 +4,7 @@ import type { ClientCommand } from "@warfront/protocol";
 import {
   legacyWorldSnapshotSchema,
   combatWorldSnapshotSchema,
+  economyWorldSnapshotSchema,
   snapshotVersion,
   worldSnapshotSchema,
 } from "@warfront/protocol";
@@ -67,12 +68,22 @@ export class WorldStore {
     if (!row) return undefined;
     const current = worldSnapshotSchema.safeParse(row.snapshot);
     if (current.success) return current.data;
+    const economy = economyWorldSnapshotSchema.safeParse(row.snapshot);
+    if (economy.success)
+      return {
+        ...economy.data,
+        snapshotVersion,
+        armies: [],
+        battleReports: [],
+      };
     const combat = combatWorldSnapshotSchema.safeParse(row.snapshot);
     if (combat.success)
       return {
         ...combat.data,
         snapshotVersion,
         ...startingEconomy(combat.data.playerIds),
+        armies: [],
+        battleReports: [],
       };
     const legacy = legacyWorldSnapshotSchema.parse(row.snapshot);
     const playerIds = [...new Set(legacy.units.map((unit) => unit.ownerId))];
@@ -114,6 +125,8 @@ export class WorldStore {
       units,
       combatEvents: [],
       ...startingEconomy(playerIds),
+      armies: [],
+      battleReports: [],
     };
   }
 

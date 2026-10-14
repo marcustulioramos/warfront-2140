@@ -5,6 +5,8 @@ import {
   UNIT_STATS,
   WORLD_HALF_SIZE,
   type CombatEvent,
+  type ArmyView,
+  type BattleReport,
   type Point,
   type UnitRole,
   type UnitView,
@@ -97,9 +99,14 @@ export class Simulation {
             ? []
             : [makeUnit("unit-1", "player-1", "scout", { x: 0, z: 0 })],
           combatEvents: [],
+          armies: [],
+          battleReports: [],
           ...startingEconomy(matchId ? [] : ["player-1"]),
         };
-    if (snapshot) this.settleEconomy(clock.nowMs());
+    if (snapshot) {
+      this.settleEconomy(clock.nowMs());
+      this.settleArmies(clock.nowMs());
+    }
   }
 
   snapshot(): WorldSnapshot {
@@ -135,6 +142,26 @@ export class Simulation {
   }
 
   command(playerId: string, command: ClientCommand): void {
+    if (command.type === "CREATE_ARMY") {
+      this.createArmy(
+        playerId,
+        command.commandId,
+        command.name,
+        command.unitIds,
+      );
+      return;
+    }
+    if (command.type === "ORDER_ARMY") {
+      this.orderArmy(
+        playerId,
+        command.armyId,
+        command.destination,
+        command.stance,
+        command.retreatThreshold,
+        command.postBattle,
+      );
+      return;
+    }
     if (command.type === "BUILD_STRUCTURE") {
       this.build(playerId, command.kind, command.nodeId);
       return;
@@ -151,6 +178,12 @@ export class Simulation {
     const unit = this.world.units.find((item) => item.id === command.unitId);
     if (!unit || unit.ownerId !== playerId)
       throw new Error("Unit is not owned by player");
+    if (
+      this.world.armies.some(
+        (army) => army.arrivesAtMs !== null && army.unitIds.includes(unit.id),
+      )
+    )
+      throw new Error("Unit is travelling with an army");
     if (command.type === "MOVE_UNIT") {
       const destination = command.destination;
       if (
@@ -172,6 +205,13 @@ export class Simulation {
       );
       if (!target || target.ownerId === playerId)
         throw new Error("Invalid enemy target");
+      if (
+        this.world.armies.some(
+          (army) =>
+            army.arrivesAtMs !== null && army.unitIds.includes(target.id),
+        )
+      )
+        throw new Error("Target is travelling with an army");
       this.world = {
         ...this.world,
         units: this.world.units.map((item) =>
@@ -187,9 +227,16 @@ export class Simulation {
     const now = this.clock.nowMs();
     const previousTime = this.world.lastSimulatedAtMs;
     this.settleEconomy(now);
+    this.settleArmies(now);
     const deltaMs = Math.max(0, Math.min(now - previousTime, 1000));
     const original = new Map(this.world.units.map((unit) => [unit.id, unit]));
+    const travelling = new Set(
+      this.world.armies
+        .filter((army) => army.arrivesAtMs !== null)
+        .flatMap((army) => army.unitIds),
+    );
     const moved: UnitView[] = this.world.units.map((unit) => {
+      if (travelling.has(unit.id)) return unit;
       const stats = UNIT_STATS[unit.role];
       const target = unit.targetId ? original.get(unit.targetId) : undefined;
       let position = unit.position;
@@ -229,9 +276,11 @@ export class Simulation {
     const rawEvents: Omit<CombatEvent, "destroyed">[] = [];
     const fired = new Set<string>();
     for (const unit of moved) {
+      if (travelling.has(unit.id)) continue;
       if (!unit.targetId || unit.cooldownMs > 0 || deltaMs === 0) continue;
       const target = byId.get(unit.targetId);
       if (!target || target.ownerId === unit.ownerId) continue;
+      if (travelling.has(target.id)) continue;
       const stats = UNIT_STATS[unit.role];
       if (distance(unit.position, target.position) > stats.range) continue;
       damage.set(target.id, (damage.get(target.id) ?? 0) + stats.damage);
@@ -269,9 +318,381 @@ export class Simulation {
             ? { ...unit, targetId: null }
             : unit,
         ),
+      armies: this.world.armies
+        .map((army) => ({
+          ...army,
+          unitIds: army.unitIds.filter((id) => alive.has(id)),
+        }))
+        .filter((army) => army.unitIds.length > 0),
       combatEvents,
     };
     return this.snapshot();
+  }
+
+  private createArmy(
+    playerId: string,
+    id: string,
+    name: string,
+    unitIds: readonly string[],
+  ): void {
+    if (!this.world.playerIds.includes(playerId))
+      throw new Error("Player is not in match");
+    if (this.world.armies.some((army) => army.id === id))
+      throw new Error("Army already exists");
+    if (new Set(unitIds).size !== unitIds.length)
+      throw new Error("Duplicate unit in army");
+    if (
+      this.world.armies.some(
+        (army) =>
+          army.ownerId === playerId &&
+          army.name.toLowerCase() === name.toLowerCase(),
+      )
+    )
+      throw new Error("Army name already used");
+    const members = unitIds.map((unitId) =>
+      this.world.units.find((unit) => unit.id === unitId),
+    );
+    if (
+      members.some((unit) => !unit || unit.ownerId !== playerId) ||
+      this.world.armies.some((army) =>
+        army.unitIds.some((unitId) => unitIds.includes(unitId)),
+      )
+    )
+      throw new Error("Army units must be owned and unassigned");
+    const origin = members[0]!.position;
+    this.world = {
+      ...this.world,
+      armies: [
+        ...this.world.armies,
+        {
+          id,
+          ownerId: playerId,
+          name,
+          unitIds: [...unitIds],
+          origin,
+          destination: origin,
+          stance: "defend",
+          retreatThreshold: 25,
+          postBattle: "hold",
+          arrivesAtMs: null,
+        },
+      ],
+    };
+  }
+
+  private orderArmy(
+    playerId: string,
+    armyId: string,
+    destination: Point,
+    stance: ArmyView["stance"],
+    retreatThreshold: number,
+    postBattle: ArmyView["postBattle"],
+  ): void {
+    if (
+      Math.abs(destination.x) > WORLD_HALF_SIZE ||
+      Math.abs(destination.z) > WORLD_HALF_SIZE
+    )
+      throw new Error("Destination outside map");
+    const army = this.world.armies.find((item) => item.id === armyId);
+    if (!army || army.ownerId !== playerId)
+      throw new Error("Army is not owned by player");
+    if (army.arrivesAtMs !== null)
+      throw new Error("Army is already travelling");
+    const members = this.world.units.filter((unit) =>
+      army.unitIds.includes(unit.id),
+    );
+    if (members.length === 0) throw new Error("Army has no surviving units");
+    const origin = members[0]!.position;
+    const slowest = Math.min(
+      ...members.map((unit) => UNIT_STATS[unit.role].speed),
+    );
+    const travelMs = Math.max(
+      1000,
+      Math.ceil((distance(origin, destination) / slowest) * 5000),
+    );
+    this.world = {
+      ...this.world,
+      armies: this.world.armies.map((item) =>
+        item.id === armyId
+          ? {
+              ...item,
+              unitIds: members.map((unit) => unit.id),
+              origin,
+              destination,
+              stance,
+              retreatThreshold,
+              postBattle,
+              arrivesAtMs: this.clock.nowMs() + travelMs,
+            }
+          : item,
+      ),
+      units: this.world.units.map((unit) =>
+        army.unitIds.includes(unit.id)
+          ? { ...unit, destination: null, targetId: null }
+          : unit,
+      ),
+    };
+  }
+
+  private settleArmies(now: number): void {
+    for (let event = 0; event < 100; event++) {
+      const army = this.world.armies
+        .filter((item) => item.arrivesAtMs !== null && item.arrivesAtMs <= now)
+        .sort(
+          (a, b) => a.arrivesAtMs! - b.arrivesAtMs! || a.id.localeCompare(b.id),
+        )[0];
+      if (!army) break;
+      const members = this.world.units.filter((unit) =>
+        army.unitIds.includes(unit.id),
+      );
+      const arrival = army.arrivesAtMs!;
+      if (members.length === 0) {
+        this.world = {
+          ...this.world,
+          armies: this.world.armies.filter((item) => item.id !== army.id),
+        };
+        continue;
+      }
+      const arrivedUnits = this.world.units.map((unit) =>
+        army.unitIds.includes(unit.id)
+          ? {
+              ...unit,
+              position: army.destination,
+              destination: null,
+              targetId: null,
+            }
+          : unit,
+      );
+      this.world = {
+        ...this.world,
+        units: arrivedUnits,
+        armies: this.world.armies.map((item) =>
+          item.id === army.id ? { ...item, arrivesAtMs: null } : item,
+        ),
+      };
+      if (army.stance === "attack") this.resolveArmyBattle(army, arrival);
+      else
+        this.addReport({
+          id: `${army.id}-${arrival}`,
+          atMs: arrival,
+          armyId: army.id,
+          ownerId: army.ownerId,
+          kind: "arrived",
+          message: `${army.name} reached its defend position.`,
+          ownLosses: 0,
+          enemyLosses: 0,
+        });
+    }
+  }
+
+  private resolveArmyBattle(army: ArmyView, atMs: number): void {
+    const attackers = this.world.units.filter((unit) =>
+      army.unitIds.includes(unit.id),
+    );
+    const travelling = new Set(
+      this.world.armies
+        .filter((item) => item.arrivesAtMs !== null)
+        .flatMap((item) => item.unitIds),
+    );
+    const defenders = this.world.units.filter(
+      (unit) =>
+        unit.ownerId !== army.ownerId &&
+        !travelling.has(unit.id) &&
+        distance(unit.position, army.destination) <= 10,
+    );
+    const defenderArmies = this.world.armies.filter(
+      (item) =>
+        item.ownerId !== army.ownerId &&
+        item.arrivesAtMs === null &&
+        item.unitIds.some((id) => defenders.some((unit) => unit.id === id)),
+    );
+    const initialAttackers = attackers.length;
+    const initialDefenders = defenders.length;
+    const hp = new Map(
+      [...attackers, ...defenders].map((unit) => [unit.id, unit.health]),
+    );
+    const startingHp = attackers.reduce((sum, unit) => sum + unit.health, 0);
+    let retreated = false;
+    const withdrawn = new Set<string>();
+    const retreatingDefenders = new Set<string>();
+    for (
+      let round = 0;
+      round < 200 &&
+      attackers.some((unit) => (hp.get(unit.id) ?? 0) > 0) &&
+      defenders.some(
+        (unit) => (hp.get(unit.id) ?? 0) > 0 && !withdrawn.has(unit.id),
+      );
+      round++
+    ) {
+      const liveAttackers = attackers.filter(
+        (unit) => (hp.get(unit.id) ?? 0) > 0,
+      );
+      const liveDefenders = defenders.filter(
+        (unit) => (hp.get(unit.id) ?? 0) > 0 && !withdrawn.has(unit.id),
+      );
+      const damage = new Map<string, number>();
+      for (const [side, enemies] of [
+        [liveAttackers, liveDefenders],
+        [liveDefenders, liveAttackers],
+      ] as const) {
+        for (const unit of side) {
+          const target = enemies[0];
+          if (target)
+            damage.set(
+              target.id,
+              (damage.get(target.id) ?? 0) + UNIT_STATS[unit.role].damage,
+            );
+        }
+      }
+      for (const [id, amount] of damage)
+        hp.set(id, Math.max(0, (hp.get(id) ?? 0) - amount));
+      for (const defenderArmy of defenderArmies) {
+        if (retreatingDefenders.has(defenderArmy.id)) continue;
+        const members = defenders.filter((unit) =>
+          defenderArmy.unitIds.includes(unit.id),
+        );
+        const initial = members.reduce((sum, unit) => sum + unit.health, 0);
+        const remaining = members.reduce(
+          (sum, unit) => sum + (hp.get(unit.id) ?? 0),
+          0,
+        );
+        if (
+          remaining > 0 &&
+          remaining * 100 <= initial * defenderArmy.retreatThreshold
+        ) {
+          retreatingDefenders.add(defenderArmy.id);
+          for (const member of members) withdrawn.add(member.id);
+        }
+      }
+      const remainingHp = attackers.reduce(
+        (sum, unit) => sum + (hp.get(unit.id) ?? 0),
+        0,
+      );
+      if (
+        remainingHp > 0 &&
+        remainingHp * 100 <= startingHp * army.retreatThreshold
+      ) {
+        retreated = true;
+        break;
+      }
+    }
+    const survivors = this.world.units
+      .filter((unit) => !hp.has(unit.id) || (hp.get(unit.id) ?? 0) > 0)
+      .map((unit) =>
+        hp.has(unit.id)
+          ? { ...unit, health: hp.get(unit.id)!, cooldownMs: 0 }
+          : unit,
+      );
+    const ownLosses =
+      initialAttackers -
+      attackers.filter((unit) => (hp.get(unit.id) ?? 0) > 0).length;
+    const enemyLosses =
+      initialDefenders -
+      defenders.filter((unit) => (hp.get(unit.id) ?? 0) > 0).length;
+    const survivingIds = new Set(survivors.map((unit) => unit.id));
+    const returnHome =
+      retreated || (army.postBattle === "return" && survivingIds.size > 0);
+    const remaining = attackers.filter((unit) => survivingIds.has(unit.id));
+    const travelMs = remaining.length
+      ? Math.max(
+          1000,
+          Math.ceil(
+            (distance(army.destination, army.origin) /
+              Math.min(
+                ...remaining.map((unit) => UNIT_STATS[unit.role].speed),
+              )) *
+              5000,
+          ),
+        )
+      : 0;
+    this.world = {
+      ...this.world,
+      units: survivors,
+      armies: this.world.armies
+        .map((item) => {
+          if (item.id === army.id)
+            return {
+              ...item,
+              unitIds: remaining.map((unit) => unit.id),
+              origin: army.destination,
+              destination:
+                returnHome && remaining.length ? army.origin : army.destination,
+              stance: "defend" as const,
+              arrivesAtMs:
+                returnHome && remaining.length ? atMs + travelMs : null,
+            };
+          if (
+            !defenderArmies.some((defenderArmy) => defenderArmy.id === item.id)
+          )
+            return item;
+          const members = survivors.filter((unit) =>
+            item.unitIds.includes(unit.id),
+          );
+          const shouldReturn =
+            retreatingDefenders.has(item.id) || item.postBattle === "return";
+          const home = item.origin;
+          const current = item.destination;
+          const duration = members.length
+            ? Math.max(
+                1000,
+                Math.ceil(
+                  (distance(current, home) /
+                    Math.min(
+                      ...members.map((unit) => UNIT_STATS[unit.role].speed),
+                    )) *
+                    5000,
+                ),
+              )
+            : 0;
+          return {
+            ...item,
+            unitIds: members.map((unit) => unit.id),
+            origin: current,
+            destination: shouldReturn ? home : current,
+            arrivesAtMs:
+              shouldReturn && members.length ? atMs + duration : null,
+          };
+        })
+        .filter((item) => item.unitIds.length > 0),
+    };
+    this.addReport({
+      id: `${army.id}-${atMs}`,
+      atMs,
+      armyId: army.id,
+      ownerId: army.ownerId,
+      kind:
+        remaining.length === 0
+          ? "destroyed"
+          : retreated
+            ? "retreated"
+            : "battle",
+      message: `${army.name} ${retreated ? "retreated from" : "reached"} the target. ${enemyLosses} enemy units and ${ownLosses} allied units lost.${returnHome && remaining.length ? " Survivors returning." : ""}`,
+      ownLosses,
+      enemyLosses,
+    });
+    for (const ownerId of new Set(defenders.map((unit) => unit.ownerId)))
+      this.addReport({
+        id: `${army.id}-${atMs}-${ownerId}`,
+        atMs,
+        armyId: army.id,
+        ownerId,
+        kind: defenderArmies.some(
+          (item) =>
+            item.ownerId === ownerId && retreatingDefenders.has(item.id),
+        )
+          ? "retreated"
+          : "battle",
+        message: `${army.name} attacked your units. ${ownLosses} attackers and ${enemyLosses} defenders lost.${defenderArmies.some((item) => item.ownerId === ownerId && retreatingDefenders.has(item.id)) ? " Your army retreated." : ""}`,
+        ownLosses: enemyLosses,
+        enemyLosses: ownLosses,
+      });
+  }
+
+  private addReport(report: BattleReport): void {
+    this.world = {
+      ...this.world,
+      battleReports: [...this.world.battleReports, report].slice(-100),
+    };
   }
 
   private spend(playerId: string, cost: number): void {

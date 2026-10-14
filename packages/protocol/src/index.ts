@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { WorldView } from "@warfront/shared";
 
 export const protocolVersion = 1;
-export const snapshotVersion = 3;
+export const snapshotVersion = 4;
 
 const pointSchema = z.object({
   x: z.number().finite(),
@@ -39,11 +39,30 @@ export const produceUnitCommandSchema = z.object({
   factoryId: z.string().min(1).max(80),
   role: z.enum(["scout", "medium", "artillery"]),
 });
+export const createArmyCommandSchema = z.object({
+  protocolVersion: z.literal(protocolVersion),
+  commandId: z.uuid(),
+  type: z.literal("CREATE_ARMY"),
+  name: z.string().trim().min(3).max(32),
+  unitIds: z.array(z.string().min(1).max(80)).min(1).max(20),
+});
+export const orderArmyCommandSchema = z.object({
+  protocolVersion: z.literal(protocolVersion),
+  commandId: z.uuid(),
+  type: z.literal("ORDER_ARMY"),
+  armyId: z.string().min(1).max(80),
+  destination: pointSchema,
+  stance: z.enum(["attack", "defend"]),
+  retreatThreshold: z.number().int().min(0).max(90),
+  postBattle: z.enum(["hold", "return"]),
+});
 export const clientCommandSchema = z.discriminatedUnion("type", [
   moveUnitCommandSchema,
   attackUnitCommandSchema,
   buildStructureCommandSchema,
   produceUnitCommandSchema,
+  createArmyCommandSchema,
+  orderArmyCommandSchema,
 ]);
 
 const legacyUnitSchema = z.object({
@@ -88,8 +107,8 @@ export const combatWorldSnapshotSchema = z.object({
   ),
 });
 
-export const worldSnapshotSchema = combatWorldSnapshotSchema.extend({
-  snapshotVersion: z.literal(snapshotVersion),
+export const economyWorldSnapshotSchema = combatWorldSnapshotSchema.extend({
+  snapshotVersion: z.literal(3),
   resourceNodes: z.array(z.object({ id: z.string(), position: pointSchema })),
   buildings: z.array(
     z.object({
@@ -114,6 +133,35 @@ export const worldSnapshotSchema = combatWorldSnapshotSchema.extend({
     z.object({ playerId: z.string(), ore: z.number().finite().nonnegative() }),
   ),
 });
+export const worldSnapshotSchema = economyWorldSnapshotSchema.extend({
+  snapshotVersion: z.literal(snapshotVersion),
+  armies: z.array(
+    z.object({
+      id: z.string(),
+      ownerId: z.string(),
+      name: z.string(),
+      unitIds: z.array(z.string()),
+      origin: pointSchema,
+      destination: pointSchema,
+      stance: z.enum(["attack", "defend"]),
+      retreatThreshold: z.number().int().min(0).max(90),
+      postBattle: z.enum(["hold", "return"]),
+      arrivesAtMs: z.number().finite().nullable(),
+    }),
+  ),
+  battleReports: z.array(
+    z.object({
+      id: z.string(),
+      atMs: z.number().finite(),
+      armyId: z.string(),
+      ownerId: z.string(),
+      kind: z.enum(["arrived", "battle", "retreated", "destroyed"]),
+      message: z.string(),
+      ownLosses: z.number().int().nonnegative(),
+      enemyLosses: z.number().int().nonnegative(),
+    }),
+  ),
+});
 
 export const serverMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("SNAPSHOT"), state: worldSnapshotSchema }),
@@ -130,12 +178,14 @@ export type MoveUnitCommand = z.infer<typeof moveUnitCommandSchema>;
 export type AttackUnitCommand = z.infer<typeof attackUnitCommandSchema>;
 export type BuildStructureCommand = z.infer<typeof buildStructureCommandSchema>;
 export type ProduceUnitCommand = z.infer<typeof produceUnitCommandSchema>;
+export type CreateArmyCommand = z.infer<typeof createArmyCommandSchema>;
+export type OrderArmyCommand = z.infer<typeof orderArmyCommandSchema>;
 export type ClientCommand = z.infer<typeof clientCommandSchema>;
 export type ServerMessage =
   | {
       readonly type: "SNAPSHOT";
       readonly state: WorldView & {
-        readonly snapshotVersion: 3;
+        readonly snapshotVersion: 4;
         readonly lastSimulatedAtMs: number;
       };
     }

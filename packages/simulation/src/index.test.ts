@@ -287,4 +287,158 @@ describe("authoritative simulation", () => {
         .units.filter((unit) => unit.id === `produced-${id}`),
     ).toHaveLength(1);
   });
+
+  it("resolves a named army attack while both players are offline and reports it once", () => {
+    const clock = new ManualClock(1000);
+    const simulation = new Simulation(clock, undefined, "offline-battle");
+    simulation.addPlayer("a");
+    simulation.addPlayer("b");
+    const armyId = "aa982f47-5bc7-4bd4-8346-8da32422d13b";
+    simulation.command("a", {
+      protocolVersion: 1,
+      commandId: armyId,
+      type: "CREATE_ARMY",
+      name: "Alpha",
+      unitIds: ["unit-a", "medium-a", "artillery-a"],
+    });
+    expect(() =>
+      simulation.command("b", {
+        protocolVersion: 1,
+        commandId: move.commandId,
+        type: "ORDER_ARMY",
+        armyId,
+        destination: { x: 10, z: 0 },
+        stance: "attack",
+        retreatThreshold: 0,
+        postBattle: "hold",
+      }),
+    ).toThrow("not owned");
+    simulation.command("a", {
+      protocolVersion: 1,
+      commandId: move.commandId,
+      type: "ORDER_ARMY",
+      armyId,
+      destination: { x: 10, z: 0 },
+      stance: "attack",
+      retreatThreshold: 0,
+      postBattle: "hold",
+    });
+    expect(() =>
+      simulation.command("a", { ...move, unitId: "unit-a" }),
+    ).toThrow("travelling");
+    const due = simulation.snapshot().armies[0]!.arrivesAtMs!;
+    const restored = new Simulation(
+      new ManualClock(due + 1000),
+      simulation.snapshot(),
+    );
+    const result = restored.snapshot();
+    expect(
+      result.battleReports.filter((report) => report.ownerId === "a"),
+    ).toHaveLength(1);
+    expect(
+      result.battleReports.filter((report) => report.ownerId === "b"),
+    ).toHaveLength(1);
+    expect(result.battleReports[0]?.enemyLosses).toBeGreaterThan(0);
+    expect(result.armies.every((army) => army.arrivesAtMs === null)).toBe(true);
+    expect(
+      new Simulation(new ManualClock(due + 5000), result).snapshot()
+        .battleReports,
+    ).toHaveLength(2);
+  });
+
+  it("retreats surviving armies and completes their return after a long disconnect", () => {
+    const clock = new ManualClock(0);
+    const simulation = new Simulation(clock, undefined, "retreat");
+    simulation.addPlayer("a");
+    simulation.addPlayer("b");
+    const armyId = "aa982f47-5bc7-4bd4-8346-8da32422d13b";
+    simulation.command("a", {
+      protocolVersion: 1,
+      commandId: armyId,
+      type: "CREATE_ARMY",
+      name: "Retreat force",
+      unitIds: ["medium-a"],
+    });
+    simulation.command("a", {
+      protocolVersion: 1,
+      commandId: move.commandId,
+      type: "ORDER_ARMY",
+      armyId,
+      destination: { x: 10, z: 0 },
+      stance: "attack",
+      retreatThreshold: 90,
+      postBattle: "hold",
+    });
+    const result = new Simulation(
+      new ManualClock(200_000),
+      simulation.snapshot(),
+    ).snapshot();
+    expect(
+      result.battleReports.some(
+        (report) => report.ownerId === "a" && report.kind === "retreated",
+      ),
+    ).toBe(true);
+    expect(result.armies[0]?.arrivesAtMs).toBeNull();
+    expect(
+      result.units.find((unit) => unit.id === "medium-a")?.position.x,
+    ).toBe(-10);
+  });
+
+  it("applies a defending army's retreat threshold during an offline attack", () => {
+    const clock = new ManualClock();
+    const simulation = new Simulation(clock, undefined, "defender-retreat");
+    simulation.addPlayer("a");
+    simulation.addPlayer("b");
+    const attackId = "aa982f47-5bc7-4bd4-8346-8da32422d13b";
+    const defendId = "ee982f47-5bc7-4bd4-8346-8da32422d13b";
+    simulation.command("a", {
+      protocolVersion: 1,
+      commandId: attackId,
+      type: "CREATE_ARMY",
+      name: "Attack force",
+      unitIds: ["medium-a", "artillery-a"],
+    });
+    simulation.command("b", {
+      protocolVersion: 1,
+      commandId: defendId,
+      type: "CREATE_ARMY",
+      name: "Guard force",
+      unitIds: ["medium-b"],
+    });
+    simulation.command("b", {
+      protocolVersion: 1,
+      commandId: move.commandId,
+      type: "ORDER_ARMY",
+      armyId: defendId,
+      destination: { x: 10, z: 0 },
+      stance: "defend",
+      retreatThreshold: 90,
+      postBattle: "hold",
+    });
+    simulation.command("a", {
+      protocolVersion: 1,
+      commandId: "b6882103-332e-481d-8d67-d655010a9187",
+      type: "ORDER_ARMY",
+      armyId: attackId,
+      destination: { x: 10, z: 0 },
+      stance: "attack",
+      retreatThreshold: 0,
+      postBattle: "hold",
+    });
+    const result = new Simulation(
+      new ManualClock(200_000),
+      simulation.snapshot(),
+    ).snapshot();
+    expect(
+      result.battleReports.some(
+        (report) => report.ownerId === "b" && report.kind === "retreated",
+      ),
+    ).toBe(true);
+    expect(
+      result.armies.find((army) => army.id === defendId)?.arrivesAtMs,
+    ).toBeNull();
+    expect(
+      result.units.find((unit) => unit.id === "medium-b")?.position.z,
+    ).toBe(-4);
+  });
 });

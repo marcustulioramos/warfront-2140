@@ -15,6 +15,8 @@ import {
   type BuildStructureCommand,
   type MoveUnitCommand,
   type ProduceUnitCommand,
+  type CreateArmyCommand,
+  type OrderArmyCommand,
 } from "@warfront/protocol";
 import {
   ECONOMY,
@@ -41,6 +43,11 @@ const unitRoster = element<HTMLElement>("#unit-roster");
 const combatLog = element<HTMLElement>("#combat-log");
 const oreBalance = element<HTMLElement>("#ore-balance");
 const economyProgress = element<HTMLElement>("#economy-progress");
+const armyUnitList = element<HTMLElement>("#army-unit-list");
+const armySelect = element<HTMLSelectElement>("#army-select");
+const armyProgress = element<HTMLElement>("#army-progress");
+const battleReports = element<HTMLElement>("#battle-reports");
+const reconnectSummary = element<HTMLElement>("#reconnect-summary");
 const buildExtractor = element<HTMLButtonElement>("#build-extractor");
 const buildFactory = element<HTMLButtonElement>("#build-factory");
 const produceButtons = {
@@ -72,6 +79,8 @@ interface Match {
 let me: Player | undefined;
 let activeMatch: Match | undefined;
 let myPlayerId: string | undefined;
+let reportsInitialized = false;
+let armyUnitSignature = "";
 
 async function api<T>(
   path: string,
@@ -185,9 +194,14 @@ function showLobby(): void {
   socket = undefined;
   activeMatch = undefined;
   myPlayerId = undefined;
+  reportsInitialized = false;
+  armyUnitSignature = "";
+  armyUnitList.replaceChildren();
+  armySelect.replaceChildren();
   selectedId = undefined;
   currentState = undefined;
   hasSnapshot = false;
+  reportsInitialized = false;
   for (const mesh of units.values()) mesh.dispose();
   units.clear();
   selectionRing.setEnabled(false);
@@ -606,6 +620,77 @@ function showState(state: WorldView & { lastSimulatedAtMs: number }): void {
   hasSnapshot = true;
   if (selectedId && !visibleIds.has(selectedId)) setSelection(undefined);
   const owned = state.units.filter((unit) => unit.ownerId === myPlayerId);
+  const assigned = new Set(state.armies.flatMap((army) => army.unitIds));
+  const available = owned.filter((unit) => !assigned.has(unit.id));
+  const signature = available.map((unit) => unit.id).join("|");
+  if (signature !== armyUnitSignature) {
+    armyUnitSignature = signature;
+    armyUnitList.replaceChildren();
+    for (const unit of available) {
+      const label = document.createElement("label");
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.value = unit.id;
+      label.append(checkbox, ` ${roleName(unit.role)}`);
+      armyUnitList.append(label);
+    }
+  }
+  const ownArmies = state.armies.filter((army) => army.ownerId === myPlayerId);
+  const selectedArmy = armySelect.value;
+  if (
+    armySelect.options.length !== ownArmies.length ||
+    ownArmies.some(
+      (army, index) => armySelect.options[index]?.value !== army.id,
+    )
+  ) {
+    armySelect.replaceChildren(
+      ...ownArmies.map((army) => {
+        const option = document.createElement("option");
+        option.value = army.id;
+        option.textContent = army.name;
+        return option;
+      }),
+    );
+    armySelect.value = ownArmies.some((army) => army.id === selectedArmy)
+      ? selectedArmy
+      : (ownArmies[0]?.id ?? "");
+  }
+  armyProgress.textContent = ownArmies.length
+    ? ownArmies
+        .map(
+          (army) =>
+            `${army.name}: ${army.arrivesAtMs === null ? `holding (${army.unitIds.length} units)` : `travelling · ${Math.max(0, Math.ceil((army.arrivesAtMs - serverNow) / 1000))}s remaining`}`,
+        )
+        .join(" · ")
+    : "No army orders yet.";
+  const reports = state.battleReports.filter(
+    (report) => report.ownerId === myPlayerId,
+  );
+  battleReports.replaceChildren(
+    ...reports
+      .slice(-6)
+      .reverse()
+      .map((report) => {
+        const item = document.createElement("li");
+        item.textContent = `${new Date(report.atMs).toLocaleString()}: ${report.message}`;
+        return item;
+      }),
+  );
+  if (!reportsInitialized && activeMatch && myPlayerId) {
+    const key = `warfront-reports-${activeMatch.id}-${myPlayerId}`;
+    const lastVisit = Number(localStorage.getItem(key) ?? 0);
+    const newReports = reports.filter((report) => report.atMs > lastVisit);
+    reconnectSummary.textContent =
+      lastVisit && newReports.length
+        ? `${newReports.length} new report${newReports.length === 1 ? "" : "s"} since your last visit.`
+        : "";
+    reportsInitialized = true;
+  }
+  if (activeMatch && myPlayerId)
+    localStorage.setItem(
+      `warfront-reports-${activeMatch.id}-${myPlayerId}`,
+      String(serverNow),
+    );
   const ownedIds = new Set(owned.map((unit) => unit.id));
   for (const [id, button] of unitButtons) {
     if (ownedIds.has(id)) continue;
@@ -740,6 +825,59 @@ function sendEconomy(
   socket.send(JSON.stringify(command));
   status.textContent = "Economy order sent. Waiting for server confirmation…";
 }
+function sendArmy(command: CreateArmyCommand | OrderArmyCommand): void {
+  if (!socket || socket.readyState !== WebSocket.OPEN) return;
+  socket.send(JSON.stringify(command));
+  status.textContent = "Army order sent. Waiting for server confirmation…";
+}
+element<HTMLFormElement>("#create-army-form").addEventListener(
+  "submit",
+  (event) => {
+    event.preventDefault();
+    const unitIds = Array.from(
+      armyUnitList.querySelectorAll<HTMLInputElement>("input:checked"),
+      (input) => input.value,
+    );
+    if (!unitIds.length) {
+      status.textContent = "Choose at least one available unit.";
+      return;
+    }
+    sendArmy({
+      protocolVersion,
+      commandId: commandId(),
+      type: "CREATE_ARMY",
+      name: element<HTMLInputElement>("#army-name").value.trim(),
+      unitIds,
+    });
+  },
+);
+element<HTMLFormElement>("#order-army-form").addEventListener(
+  "submit",
+  (event) => {
+    event.preventDefault();
+    if (!armySelect.value) {
+      status.textContent = "Create an army first.";
+      return;
+    }
+    sendArmy({
+      protocolVersion,
+      commandId: commandId(),
+      type: "ORDER_ARMY",
+      armyId: armySelect.value,
+      destination: {
+        x: Number(element<HTMLInputElement>("#army-x").value),
+        z: Number(element<HTMLInputElement>("#army-z").value),
+      },
+      stance: element<HTMLSelectElement>("#army-stance").value as
+        "attack" | "defend",
+      retreatThreshold: Number(
+        element<HTMLInputElement>("#army-retreat").value,
+      ),
+      postBattle: element<HTMLSelectElement>("#army-post-battle").value as
+        "hold" | "return",
+    });
+  },
+);
 for (const [button, kind] of [
   [buildExtractor, "extractor"],
   [buildFactory, "factory"],

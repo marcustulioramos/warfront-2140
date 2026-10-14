@@ -202,6 +202,26 @@ try {
       document.querySelector("#build-factory")?.hasAttribute("disabled"),
   );
   console.log("Browser smoke: economy restored after refresh");
+  await pageA.locator('#army-unit-list input[type="checkbox"]').first().check();
+  await pageA.locator("#army-name").fill("Browser Alpha");
+  await pageA.locator('#create-army-form button[type="submit"]').click();
+  await pageA
+    .locator("#army-select option")
+    .first()
+    .waitFor({ state: "attached" });
+  await pageA.locator("#army-x").fill("-10");
+  await pageA.locator("#army-z").fill("0");
+  await pageA.locator("#army-stance").selectOption("defend");
+  await pageA.locator('#order-army-form button[type="submit"]').click();
+  await pageA.waitForFunction(
+    () =>
+      document
+        .querySelector("#battle-reports")
+        ?.textContent?.includes("Browser Alpha reached its defend position"),
+    null,
+    { timeout: 20000 },
+  );
+  console.log("Browser smoke: named army arrived and reported");
   await pageA.locator("#leave-match").click();
   await pageA
     .locator(".match-row")

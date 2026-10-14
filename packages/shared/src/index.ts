@@ -70,12 +70,41 @@ export interface CombatEvent {
   readonly destroyed: boolean;
 }
 
+export type ArmyStance = "attack" | "defend";
+export type PostBattleOrder = "hold" | "return";
+
+export interface ArmyView {
+  readonly id: string;
+  readonly ownerId: PlayerId;
+  readonly name: string;
+  readonly unitIds: readonly UnitId[];
+  readonly origin: Point;
+  readonly destination: Point;
+  readonly stance: ArmyStance;
+  readonly retreatThreshold: number;
+  readonly postBattle: PostBattleOrder;
+  readonly arrivesAtMs: number | null;
+}
+
+export interface BattleReport {
+  readonly id: string;
+  readonly atMs: number;
+  readonly armyId: string;
+  readonly ownerId: PlayerId;
+  readonly kind: "arrived" | "battle" | "retreated" | "destroyed";
+  readonly message: string;
+  readonly ownLosses: number;
+  readonly enemyLosses: number;
+}
+
 export interface WorldView {
   readonly matchId: MatchId;
   readonly tick: number;
   readonly playerIds: readonly PlayerId[];
   readonly units: readonly UnitView[];
   readonly combatEvents: readonly CombatEvent[];
+  readonly armies: readonly ArmyView[];
+  readonly battleReports: readonly BattleReport[];
   readonly resourceNodes: readonly { id: string; position: Point }[];
   readonly buildings: readonly {
     id: string;

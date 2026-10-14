@@ -125,7 +125,7 @@ describeWithDatabase("PostgreSQL world recovery", () => {
         ],
       );
       const loaded = await store.load(matchId);
-      expect(loaded?.snapshotVersion).toBe(3);
+      expect(loaded?.snapshotVersion).toBe(4);
       expect(loaded?.playerIds).toEqual(["old"]);
       expect(loaded?.units.map((unit) => unit.role)).toEqual([
         "scout",
@@ -229,11 +229,91 @@ describeWithDatabase("PostgreSQL world recovery", () => {
         ],
       );
       const loaded = await store.load(matchId);
-      expect(loaded?.snapshotVersion).toBe(3);
+      expect(loaded?.snapshotVersion).toBe(4);
       expect(loaded?.resources).toEqual([{ playerId: "veteran", ore: 100 }]);
       expect(loaded?.resourceNodes[0]?.id).toBe("node-veteran");
       expect(loaded?.units).toHaveLength(3);
     } finally {
+      await pool.query("DELETE FROM world_snapshots WHERE match_id = $1", [
+        matchId,
+      ]);
+      await pool.end();
+    }
+  });
+
+  it("upgrades Milestone 5 saves and persists an offline army battle only once", async () => {
+    if (!databaseUrl) throw new Error("DATABASE_URL_TEST is required");
+    const pool = new pg.Pool({ connectionString: databaseUrl });
+    const store = new WorldStore(pool);
+    const matchId = `army-${randomUUID()}`;
+    try {
+      await store.migrate();
+      const clock = new ManualClock(1000);
+      const seed = new Simulation(clock, undefined, matchId);
+      seed.addPlayer("a");
+      seed.addPlayer("b");
+      const oldSnapshot = Object.fromEntries(
+        Object.entries(seed.snapshot()).filter(
+          ([key]) => key !== "armies" && key !== "battleReports",
+        ),
+      );
+      await pool.query(
+        "INSERT INTO world_snapshots (match_id, snapshot) VALUES ($1, $2::jsonb)",
+        [matchId, JSON.stringify({ ...oldSnapshot, snapshotVersion: 3 })],
+      );
+      const upgraded = await store.load(matchId);
+      expect(upgraded?.snapshotVersion).toBe(4);
+      expect(upgraded?.armies).toEqual([]);
+      const simulation = new Simulation(clock, upgraded);
+      const armyId = randomUUID();
+      simulation.command("a", {
+        protocolVersion: 1,
+        commandId: armyId,
+        type: "CREATE_ARMY",
+        name: "Offline Alpha",
+        unitIds: ["artillery-a", "medium-a"],
+      });
+      simulation.command("a", {
+        protocolVersion: 1,
+        commandId: randomUUID(),
+        type: "ORDER_ARMY",
+        armyId,
+        destination: { x: 10, z: 0 },
+        stance: "attack",
+        retreatThreshold: 30,
+        postBattle: "hold",
+      });
+      const due = simulation.snapshot().armies[0]!.arrivesAtMs!;
+      await store.save(simulation.snapshot());
+      const host = await MatchHost.create(
+        new ManualClock(due + 1000),
+        store,
+        matchId,
+        () => undefined,
+        () => undefined,
+      );
+      const reports = host.snapshot().battleReports;
+      expect(
+        reports.some(
+          (report) => report.ownerId === "a" && report.kind !== "arrived",
+        ),
+      ).toBe(true);
+      const restored = await MatchHost.create(
+        new ManualClock(due + 5000),
+        store,
+        matchId,
+        () => undefined,
+        () => undefined,
+      );
+      expect(restored.snapshot().battleReports).toEqual(reports);
+    } finally {
+      await pool.query("DELETE FROM match_commands WHERE match_id = $1", [
+        matchId,
+      ]);
+      await pool.query(
+        "DELETE FROM match_scheduled_events WHERE match_id = $1",
+        [matchId],
+      );
       await pool.query("DELETE FROM world_snapshots WHERE match_id = $1", [
         matchId,
       ]);

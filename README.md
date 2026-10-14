@@ -1,6 +1,6 @@
 # Warfront 2140
 
-Warfront 2140 is an open source, browser based persistent RTS in early development. This repository now contains a two-player combat and economy prototype with accounts and a match lobby. Long-running offline strategy is still planned work.
+Warfront 2140 is an open source, browser based persistent RTS in early development. This repository now contains a two-player combat and economy prototype with accounts, a match lobby, and named armies whose travel and battles continue while players are offline.
 
 ## Local start
 
@@ -18,6 +18,8 @@ Left-click one of your blue units, or select it from the unit list. Right-click 
 The Economy panel shows ore and construction progress. Each player starts with 100 ore and one resource node. Build an extractor for 40 ore (10 seconds), then a factory for 60 ore (15 seconds). A finished extractor earns 2 ore per second. The factory produces a scout for 20 ore in 8 seconds, medium assault for 40 ore in 12 seconds, or artillery for 60 ore in 18 seconds. One factory runs one job at a time. Server timestamps keep construction, mining and production progressing while players are disconnected.
 
 In the lobby, the match creator can select **Delete** to permanently remove a match and its saved progress for both players. The lobby hides automated test matches by default; uncheck **Hide automated test matches** to show them. Tests delete the matches they create after a successful run.
+
+The Offline armies panel lets you select unassigned units, name an army, and send it to map coordinates with an attack or defend order. You can set a retreat threshold and choose whether survivors hold or return after an attack. Travel uses server time and resolves after a disconnect or restart. The panel keeps recent battle reports and highlights reports received since your last visit. This first strategic model resolves encounters at the destination; sector routes and larger map movement are planned for Milestone 8.
 
 ## Development checks
 

@@ -99,6 +99,64 @@ canvas {
   opacity: 0.45;
   cursor: default;
 }
+.armies {
+  position: absolute;
+  top: 4.8rem;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(285px, calc(100% - 2rem));
+  max-height: min(75vh, 690px);
+  overflow: auto;
+  padding: 0.9rem;
+  border: 1px solid #627f9a;
+  border-radius: 0.6rem;
+  background: #10232ded;
+  font-size: 0.78rem;
+}
+.armies h2,
+.armies h3 {
+  margin: 0.35rem 0;
+}
+.armies p {
+  line-height: 1.35;
+}
+.armies form {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0.7rem 0;
+}
+.armies label {
+  display: block;
+}
+.armies input:not([type="checkbox"]),
+.armies select {
+  display: block;
+  width: 100%;
+  margin-top: 0.2rem;
+  padding: 0.35rem;
+  color: #eef6f5;
+  background: #071921;
+  border: 1px solid #47717a;
+  border-radius: 0.3rem;
+}
+.armies button {
+  padding: 0.45rem;
+  color: #071921;
+  background: #8ac9e4;
+  border: 0;
+  border-radius: 0.3rem;
+  cursor: pointer;
+}
+#army-unit-list {
+  display: grid;
+  gap: 0.2rem;
+}
+#battle-reports {
+  padding-left: 1.2rem;
+}
+#battle-reports li {
+  margin: 0.35rem 0;
+}
 .hud h2 {
   margin: 0 0 0.75rem;
   font-size: 1rem;

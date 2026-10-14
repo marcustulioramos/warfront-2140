@@ -2,7 +2,7 @@
 
 This checklist tracks the milestones in the [original project brief](../README.md#the-game-we-are-building). A checked box means the work is implemented and verified; an unchecked box is still to do. Update this file in the same pull request as the work it records.
 
-**Current stage:** Milestone 5 durable two-player combat and economy prototype is running locally. Offline armies are next.
+**Current stage:** Milestone 6 offline armies are running locally. Destruction and respawn are next.
 
 ## Milestone 0 — architecture and scaffolding
 
@@ -53,10 +53,10 @@ This checklist tracks the milestones in the [original project brief](../README.m
 
 ## Milestone 6 — offline armies
 
-- [ ] Add named armies and strategic travel orders.
-- [ ] Add attack, defend, retreat threshold and post-battle standing orders.
-- [ ] Generate battle reports and a reconnect summary for offline events.
-- [ ] Test an attack that continues and resolves while both players are offline.
+- [x] Add named armies and strategic travel orders.
+- [x] Add attack, defend, retreat threshold and post-battle standing orders.
+- [x] Generate battle reports and a reconnect summary for offline events.
+- [x] Test an attack that continues and resolves while both players are offline.
 
 ## Milestone 7 — destruction and respawn
 
