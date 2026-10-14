@@ -39,23 +39,46 @@ export class Simulation {
   constructor(
     private readonly clock: Clock,
     snapshot?: WorldSnapshot,
+    matchId?: string,
   ) {
     this.world = snapshot
       ? { ...structuredClone(snapshot), lastSimulatedAtMs: clock.nowMs() }
       : {
           snapshotVersion,
-          matchId: "development",
+          matchId: matchId ?? "development",
           tick: 0,
           lastSimulatedAtMs: clock.nowMs(),
-          units: [
-            {
-              id: "unit-1",
-              ownerId: "player-1",
-              position: { x: 0, z: 0 },
-              destination: null,
-            },
-          ],
+          units: matchId
+            ? []
+            : [
+                {
+                  id: "unit-1",
+                  ownerId: "player-1",
+                  position: { x: 0, z: 0 },
+                  destination: null,
+                },
+              ],
         };
+  }
+
+  addPlayer(playerId: string): WorldSnapshot {
+    if (this.world.units.some((unit) => unit.ownerId === playerId))
+      return this.snapshot();
+    if (this.world.units.length >= 2) throw new Error("Match is full");
+    const x = this.world.units.length === 0 ? -10 : 10;
+    this.world = {
+      ...this.world,
+      units: [
+        ...this.world.units,
+        {
+          id: `unit-${playerId}`,
+          ownerId: playerId,
+          position: { x, z: 0 },
+          destination: null,
+        },
+      ],
+    };
+    return this.snapshot();
   }
 
   snapshot(): WorldSnapshot {

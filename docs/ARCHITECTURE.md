@@ -1,6 +1,6 @@
 # Architecture
 
-The server is authoritative. The simulation package owns rules and accepts commands plus an injected clock. The protocol package validates wire messages. The Babylon client renders server state. A single match host currently owns the development match.
+The server is authoritative. The simulation package owns rules and accepts commands plus an injected clock. The protocol package validates wire messages. The Babylon client renders server state. A match host is created for each active match and keeps its own simulation, WebSocket group and PostgreSQL snapshot.
 
 ## Boundaries
 
@@ -15,10 +15,16 @@ A versioned PostgreSQL world snapshot stores the development match. The server a
 
 A sudden crash may lose up to about two seconds of movement since the last periodic snapshot. Milestone 5 will add durable accepted commands, event replay and stronger crash recovery. The single snapshot row is a Milestone 1 step toward that design, not the final persistence system.
 
+## Milestone 2 multiplayer
+
+The second SQL migration adds players, hashed passwords, sessions, matches and match membership. Accounts use salted scrypt password hashes. The browser receives an HttpOnly SameSite session cookie. Match creation and joining require that cookie; a row lock limits a match to two players even when joins race. A WebSocket must authenticate as a match member before receiving a snapshot. Every move uses the authenticated player ID, so a player cannot move the other scout. Broadcasts are scoped by match ID. Both scouts are visible to both participants because fog of war is a later milestone.
+
+The lobby is intentionally small: matches are listed by name and player count, players can create, join and reconnect, and two players may pick the same faction. Distinct blue and orange colours are assigned by join order. Faction gameplay differences are planned for Milestone 9. The current match hosts are loaded on demand and pause movement during server downtime.
+
 ## Database access
 
-The current snapshot store uses `pg` and a checked-in SQL migration. Drizzle remains the planned choice when relational match data and the full migration workflow are introduced. The simulation package does not depend on either database tool.
+The current snapshot and lobby stores use `pg` and checked-in SQL migrations. Drizzle remains a possible choice as the relational model grows. The simulation package does not depend on database code.
 
 ## Security boundary
 
-The current development WebSocket uses one hardcoded player identity and the `/state` endpoint exposes the development match. Keep this build on a trusted local network. Authentication and per-player visibility are required before public hosting.
+The development server authenticates browser sessions and checks match membership, but is not hardened for public hosting. Add login rate limiting, HTTPS, production session controls and network protection before exposing it publicly. See [SECURITY.md](../SECURITY.md).

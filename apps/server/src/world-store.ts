@@ -3,11 +3,7 @@ import pg from "pg";
 import { worldSnapshotSchema } from "@warfront/protocol";
 import type { WorldSnapshot } from "@warfront/simulation";
 
-const migrationVersion = "0001_world_snapshots";
-const migrationFile = new URL(
-  "../../../infrastructure/sql/0001_world_snapshots.sql",
-  import.meta.url,
-);
+const migrations = ["0001_world_snapshots", "0002_multiplayer"];
 
 export class WorldStore {
   constructor(private readonly pool: pg.Pool) {}
@@ -19,16 +15,26 @@ export class WorldStore {
       await client.query(
         "CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY)",
       );
-      const existing = await client.query<{ version: string }>(
-        "SELECT version FROM schema_migrations WHERE version = $1",
-        [migrationVersion],
-      );
-      if (existing.rowCount === 0) {
-        await client.query(await readFile(migrationFile, "utf8"));
-        await client.query(
-          "INSERT INTO schema_migrations (version) VALUES ($1)",
-          [migrationVersion],
+      for (const version of migrations) {
+        const existing = await client.query<{ version: string }>(
+          "SELECT version FROM schema_migrations WHERE version = $1",
+          [version],
         );
+        if (existing.rowCount === 0) {
+          await client.query(
+            await readFile(
+              new URL(
+                `../../../infrastructure/sql/${version}.sql`,
+                import.meta.url,
+              ),
+              "utf8",
+            ),
+          );
+          await client.query(
+            "INSERT INTO schema_migrations (version) VALUES ($1)",
+            [version],
+          );
+        }
       }
       await client.query("COMMIT");
     } catch (error) {

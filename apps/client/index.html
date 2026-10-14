@@ -18,7 +18,7 @@
         <canvas id="battlefield" aria-label="3D strategy battlefield"></canvas>
         <aside class="hud">
           <h2>Command panel</h2>
-          <p id="selection">Select the blue scout.</p>
+          <p id="selection">Sign in and join a match.</p>
           <p id="order">No order issued.</p>
           <p id="coordinates">Position: —</p>
           <div class="divider"></div>
@@ -27,10 +27,75 @@
           </p>
           <p>Drag to rotate, scroll to zoom, and use W A S D to pan.</p>
           <p class="note">
-            This is a single-player prototype. Multiplayer matches are a later
-            milestone.
+            Two-player development match. Your scout is blue; your opponent is
+            orange.
           </p>
         </aside>
+        <section id="lobby" class="lobby" aria-label="Multiplayer lobby">
+          <div class="lobby-card">
+            <div class="lobby-heading">
+              <h2>Multiplayer lobby</h2>
+              <span id="account-label"></span>
+            </div>
+            <p id="lobby-message" role="status">Loading…</p>
+            <form id="auth-form">
+              <label
+                >Username
+                <input
+                  id="username"
+                  autocomplete="username"
+                  required
+                  minlength="3"
+                  maxlength="24"
+                  pattern="[A-Za-z0-9_]+"
+              /></label>
+              <label
+                >Password
+                <input
+                  id="password"
+                  type="password"
+                  autocomplete="current-password"
+                  required
+                  minlength="10"
+              /></label>
+              <div class="buttons">
+                <button type="submit" value="login">Sign in</button
+                ><button type="button" id="register">Create account</button>
+              </div>
+            </form>
+            <div id="matches-panel" hidden>
+              <div class="buttons">
+                <button id="refresh-matches">Refresh matches</button
+                ><button id="logout">Sign out</button>
+              </div>
+              <label
+                >Faction
+                <select id="faction">
+                  <option>Imperial Vanguard</option>
+                  <option>Iron Battalion</option>
+                </select></label
+              >
+              <form id="create-form">
+                <label
+                  >Match name
+                  <input
+                    id="match-name"
+                    required
+                    minlength="3"
+                    maxlength="60"
+                    placeholder="My battlefield" /></label
+                ><button type="submit">Create match</button>
+              </form>
+              <h3>Available matches</h3>
+              <div id="match-list"></div>
+            </div>
+          </div>
+        </section>
+        <div id="active-match" class="active-match" hidden>
+          <strong id="match-label"></strong>
+          <span id="player-list"></span>
+          <button id="leave-match">Back to lobby</button>
+        </div>
       </main>
     </div>
     <script type="module" src="/src/main.ts"></script>

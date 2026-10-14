@@ -2,7 +2,7 @@
 
 This checklist tracks the milestones in the [original project brief](../README.md#the-game-we-are-building). A checked box means the work is implemented and verified; an unchecked box is still to do. Update this file in the same pull request as the work it records.
 
-**Current stage:** Milestone 1 single-player prototype is running locally. The game is not yet a playable multiplayer match.
+**Current stage:** Milestone 2 two-player movement prototype is running locally. Combat and economy are still to do.
 
 ## Milestone 0 — architecture and scaffolding
 
@@ -28,10 +28,10 @@ This checklist tracks the milestones in the [original project brief](../README.m
 
 ## Milestone 2 — multiplayer
 
-- [ ] Add accounts, authentication, match creation and a lobby.
-- [ ] Support two simultaneous players, including the same faction with different colours.
-- [ ] Validate unit ownership on every command and filter state per player.
-- [ ] Test shared state, disconnect and reconnect in two browser sessions.
+- [x] Add accounts, authentication, match creation and a lobby.
+- [x] Support two simultaneous players, including the same faction with different colours.
+- [x] Validate unit ownership on every command and filter state per match member.
+- [x] Test shared state, disconnect and reconnect in two browser sessions.
 
 ## Milestone 3 — combat
 
@@ -93,6 +93,6 @@ This checklist tracks the milestones in the [original project brief](../README.m
 ## Cross-cutting work
 
 - [ ] Choose and add an open source licence.
-- [ ] Add schema migrations and durable match data in PostgreSQL.
+- [x] Add schema migrations and durable match data in PostgreSQL.
 - [ ] Harden authentication, rate limiting and visibility before public game hosting.
 - [ ] Add deployment guidance for an Ubuntu host with HTTPS and backups.

@@ -36,3 +36,4 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+      - run: node apps/server/smoke.mjs

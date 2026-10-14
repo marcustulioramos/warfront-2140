@@ -15,22 +15,23 @@ export class MatchHost {
   private constructor(
     private readonly clock: Clock,
     private readonly store: WorldStore,
+    private readonly matchId: string,
     restored: WorldSnapshot | undefined,
     private readonly publish: (state: WorldSnapshot) => void,
     private readonly onError: (error: unknown) => void,
   ) {
-    this.simulation = new Simulation(clock, restored);
+    this.simulation = new Simulation(clock, restored, matchId);
   }
 
   static async create(
     clock: Clock,
     store: WorldStore,
+    matchId: string,
     publish: (state: WorldSnapshot) => void,
     onError: (error: unknown) => void,
   ): Promise<MatchHost> {
-    await store.migrate();
-    const restored = await store.load("development");
-    return new MatchHost(clock, store, restored, publish, onError);
+    const restored = await store.load(matchId);
+    return new MatchHost(clock, store, matchId, restored, publish, onError);
   }
 
   snapshot(): WorldSnapshot {
@@ -62,6 +63,21 @@ export class MatchHost {
         await this.store.save(state);
       } catch (error) {
         this.simulation = new Simulation(this.clock, before);
+        throw error;
+      }
+      this.publish(state);
+      return state;
+    });
+  }
+
+  addPlayer(playerId: string): Promise<WorldSnapshot> {
+    return this.enqueue(async () => {
+      const before = this.simulation.snapshot();
+      const state = this.simulation.addPlayer(playerId);
+      try {
+        await this.store.save(state);
+      } catch (error) {
+        this.simulation = new Simulation(this.clock, before, this.matchId);
         throw error;
       }
       this.publish(state);

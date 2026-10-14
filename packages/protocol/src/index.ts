@@ -34,6 +34,11 @@ export const worldSnapshotSchema = z.object({
 
 export const serverMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("SNAPSHOT"), state: worldSnapshotSchema }),
+  z.object({
+    type: z.literal("WELCOME"),
+    playerId: z.string(),
+    matchId: z.string(),
+  }),
   z.object({ type: z.literal("ACK"), commandId: z.uuid() }),
   z.object({ type: z.literal("ERROR"), message: z.string() }),
 ]);
@@ -48,4 +53,9 @@ export type ServerMessage =
       };
     }
   | { readonly type: "ACK"; readonly commandId: string }
+  | {
+      readonly type: "WELCOME";
+      readonly playerId: string;
+      readonly matchId: string;
+    }
   | { readonly type: "ERROR"; readonly message: string };

@@ -37,4 +37,23 @@ describe("authoritative simulation", () => {
     restartClock.advanceBy(200);
     expect(restored.advance().units[0]?.position.x).toBe(2);
   });
+
+  it("lets each player move only their own scout", () => {
+    const simulation = new Simulation(new ManualClock(), undefined, "match-1");
+    simulation.addPlayer("player-a");
+    simulation.addPlayer("player-b");
+    expect(simulation.snapshot().units.map((unit) => unit.position.x)).toEqual([
+      -10, 10,
+    ]);
+    expect(() =>
+      simulation.command("player-a", { ...move, unitId: "unit-player-b" }),
+    ).toThrow("not owned");
+    simulation.command("player-b", {
+      ...move,
+      unitId: "unit-player-b",
+      destination: { x: 8, z: 0 },
+    });
+    expect(simulation.snapshot().units[1]?.destination).toEqual({ x: 8, z: 0 });
+    expect(() => simulation.addPlayer("player-c")).toThrow("full");
+  });
 });

@@ -1,6 +1,6 @@
 # Warfront 2140
 
-Warfront 2140 is an open source, browser based persistent RTS in early development. This repository contains the Milestone 1 single-player prototype. It is **not yet a playable multiplayer match**.
+Warfront 2140 is an open source, browser based persistent RTS in early development. This repository now contains a two-player movement prototype with accounts and a match lobby. Combat, economy and long-running offline strategy are still planned work.
 
 ## Local start
 
@@ -9,15 +9,17 @@ Warfront 2140 is an open source, browser based persistent RTS in early developme
 3. Run `docker compose up --build`.
 4. Open http://localhost:5173. The server health endpoint is http://localhost:3000/health.
 
-The health endpoint returns 503 if PostgreSQL is unavailable. The prototype has one server-owned scout. Its movement and destination are saved in PostgreSQL. Accounts, combat, matchmaking and full crash recovery are later milestones.
+The health endpoint returns 503 if PostgreSQL is unavailable. Create an account, create a match, then have a second player create an account and join that match. Both players may choose the same faction; the game shows their scouts in different colours. Each player can command only their own scout. Match state is saved in PostgreSQL and can be resumed after a refresh or server restart. Combat and full crash recovery are later milestones.
 
 ## Controls
 
-Left-click the scout to select it, then right-click the terrain to order it to move. Drag to rotate the camera, scroll to zoom, and use W A S D or arrow keys to pan. The server calculates movement and sends updates to the browser. Refreshing the page restores the current server state.
+Left-click your blue scout to select it, then right-click the terrain to order it to move. The other player's scout appears orange. Drag to rotate the camera, scroll to zoom, and use W A S D or arrow keys to pan. The server calculates movement and sends updates to both players. Refreshing the page returns you to the lobby; choose Rejoin to restore the match.
 
 ## Development checks
 
 With Node.js 24 and pnpm 10: `pnpm install`, then `pnpm format:check`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm build`.
+
+With Docker Compose running and Chrome installed, `pnpm test:browser` checks two isolated browser profiles joining and rejoining one match. The CI workflow also runs database integration tests and a two-session WebSocket smoke test.
 
 See the [progress tracker](docs/PROGRESS.md), [architecture](docs/ARCHITECTURE.md), [game design](docs/GAME_DESIGN.md), [contributing](CONTRIBUTING.md), and [security](SECURITY.md).
 

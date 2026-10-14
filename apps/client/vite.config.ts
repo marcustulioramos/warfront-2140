@@ -5,6 +5,7 @@ export default defineConfig({
     proxy: {
       "/health": "http://server:3000",
       "/state": "http://server:3000",
+      "/api": "http://server:3000",
       "/ws": { target: "ws://server:3000", ws: true },
     },
   },

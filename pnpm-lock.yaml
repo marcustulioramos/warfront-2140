@@ -16,6 +16,9 @@ importers:
       eslint:
         specifier: ^9.39.0
         version: 9.39.5
+      playwright:
+        specifier: ^1.64.0
+        version: 1.64.0
       prettier:
         specifier: ^3.6.2
         version: 3.9.10
@@ -66,9 +69,15 @@ importers:
       "@types/pg":
         specifier: ^8.15.0
         version: 8.23.1
+      "@types/ws":
+        specifier: ^8.18.2
+        version: 8.18.2
       tsx:
         specifier: ^4.20.0
         version: 4.23.15
+      ws:
+        specifier: ^8.22.0
+        version: 8.22.0
 
   packages/protocol:
     dependencies:
@@ -734,6 +743,12 @@ packages:
     resolution:
       {
         integrity: sha512-fKVHpikPdg4GKks3JuLEhvwSyvwzF23hnabPy6DD8ljVbC7+6J5dQzdv4arV6jqq57djnMgs1HKBxX4P8aBI3A==,
+      }
+
+  "@types/ws@8.18.2":
+    resolution:
+      {
+        integrity: sha512-67MQl+fpWKVTT1NYdnmo3U4sc/xPo/zQBncVnI74qmQa0z/b+1g6iYqNmGCPbxO+zz2aklb08a0oHfegiVd0/w==,
       }
 
   "@typescript-eslint/eslint-plugin@8.71.2":
@@ -1682,6 +1697,22 @@ packages:
       }
     hasBin: true
 
+  playwright-core@1.64.0:
+    resolution:
+      {
+        integrity: sha512-T9r+MZkTECl2+oUcZ26YgZzTrYidTsIhYYkJix+6iDOymOb1FB2RLLSOxRGnZGv5DStt+aduIVbt+E8WygXYpg==,
+      }
+    engines: { node: ">=20" }
+    hasBin: true
+
+  playwright@1.64.0:
+    resolution:
+      {
+        integrity: sha512-kVzTnYFYEyQ9RGzBjNCd2+yEqWmVbxl3AHPynv3qQ6JTjv4a+kwRcnqQwIpuP3NnrnIrE/Q6wWAIAvMfIE2/Yg==,
+      }
+    engines: { node: ">=20" }
+    hasBin: true
+
   postcss@8.5.30:
     resolution:
       {
@@ -2470,6 +2501,10 @@ snapshots:
       pg-protocol: 1.16.1
       pg-types: 2.2.0
 
+  "@types/ws@8.18.2":
+    dependencies:
+      "@types/node": 24.19.2
+
   "@typescript-eslint/eslint-plugin@8.71.2(@typescript-eslint/parser@8.71.2(eslint@9.39.5)(typescript@5.9.3))(eslint@9.39.5)(typescript@5.9.3)":
     dependencies:
       "@eslint-community/regexpp": 4.12.2
@@ -3082,6 +3117,12 @@ snapshots:
       safe-stable-stringify: 2.5.0
       sonic-boom: 4.2.1
       thread-stream: 4.2.0
+
+  playwright-core@1.64.0: {}
+
+  playwright@1.64.0:
+    dependencies:
+      playwright-core: 1.64.0
 
   postcss@8.5.30:
     dependencies:
